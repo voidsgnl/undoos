@@ -21,7 +21,7 @@ Redid the undo of entry #1.
 | Undo saved files (`lifeline undo`) | Works |
 | Redo the latest undo (`lifeline redo`) | Works |
 | Append-only recovery history | Implemented |
-| Interrupted undo/redo reconciliation | Implemented for file snapshots |
+| Interrupted undo/redo reconciliation | Implemented for file snapshots and tracked moves |
 | Named checkpoints and selective rewind | Works |
 | Change history (`lifeline log`) | Works |
 | Folder watcher and background daemon | Works for configured folders |
