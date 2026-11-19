@@ -227,3 +227,50 @@ fn daemon_reacts_to_filesystem_events_without_waiting_for_poll_interval() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "before");
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn daemon_preserves_rapid_successive_versions_even_with_legacy_gap_setting() {
+    let (root, home, watched, config) = setup("daemon-rapid-versions", "");
+    let config_text = fs::read_to_string(&config).unwrap().replace("min_gap_s = 0", "min_gap_s = 10");
+    fs::write(&config, config_text).unwrap();
+
+    let file = watched.join("rapid.txt");
+    fs::write(&file, "version one").unwrap();
+    assert!(daemon_once(&home, &config).status.success());
+
+    fs::write(&file, "version two").unwrap();
+    let second = daemon_once(&home, &config);
+    assert!(stdout(&second).contains("saved"), "second version was not recorded: {}", stdout(&second));
+
+    fs::write(&file, "version three").unwrap();
+    let third = daemon_once(&home, &config);
+    assert!(stdout(&third).contains("saved"), "third version was not recorded: {}", stdout(&third));
+
+    for expected in ["version two", "version one"] {
+        let undone = lifeline(&home, &["undo"]);
+        assert!(undone.status.success(), "undo failed: {}", String::from_utf8_lossy(&undone.stderr));
+        assert_eq!(fs::read_to_string(&file).unwrap(), expected);
+    }
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn daemon_recovers_previous_contents_after_atomic_file_replacement() {
+    let (root, home, watched, config) = setup("daemon-atomic-replace", "");
+    let file = watched.join("document.txt");
+    let temporary = watched.join("document.txt.editor-temp");
+
+    fs::write(&file, "original contents").unwrap();
+    assert!(daemon_once(&home, &config).status.success());
+
+    fs::write(&temporary, "replacement contents").unwrap();
+    fs::rename(&temporary, &file).unwrap();
+
+    let scan = daemon_once(&home, &config);
+    assert!(stdout(&scan).contains("saved"), "atomic replacement was not recorded: {}", stdout(&scan));
+
+    let undone = lifeline(&home, &["undo"]);
+    assert!(undone.status.success(), "undo failed: {}", String::from_utf8_lossy(&undone.stderr));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "original contents");
+    let _ = fs::remove_dir_all(&root);
+}
