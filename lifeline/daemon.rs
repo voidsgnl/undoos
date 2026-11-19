@@ -1,8 +1,9 @@
 //! lifeline-daemon: watches folders and quietly saves the old version of
 //! anything that changes or disappears. Get it back with `lifeline undo`.
 
-use std::{env, path::PathBuf, process, thread, time::Duration};
+use std::{env, path::PathBuf, process, sync::mpsc, thread, time::Duration};
 
+use notify::{RecommendedWatcher, RecursiveMode, Watcher as NotifyWatcher};
 use undoos::config::Config;
 use undoos::journal;
 use undoos::watcher::Watcher;
@@ -34,6 +35,12 @@ fn default_config() -> Option<PathBuf> {
         Some(path)
     } else {
         None
+    }
+}
+
+fn print_scan(watcher: &mut Watcher) {
+    for event in watcher.scan() {
+        println!("{event}");
     }
 }
 
@@ -81,13 +88,58 @@ fn main() {
         println!("  {}", root.display());
     }
 
+    if once {
+        print_scan(&mut watcher);
+        return;
+    }
+
+    // Register filesystem watches before the first scan. This closes the gap
+    // where a change could otherwise happen between the initial scan and
+    // watch registration. Periodic scans remain enabled as reconciliation:
+    // they catch missed events, watcher errors, and changes during downtime.
+    let (tx, rx) = mpsc::channel();
+    let mut fs_watcher: RecommendedWatcher =
+        notify::recommended_watcher(move |result| {
+            let _ = tx.send(result);
+        })
+        .unwrap_or_else(|e| fail(&format!("cannot initialize filesystem watcher: {e}")));
+
+    let mut watched_roots = 0usize;
+    for root in watcher.roots() {
+        match fs_watcher.watch(root, RecursiveMode::Recursive) {
+            Ok(()) => watched_roots += 1,
+            Err(e) => eprintln!(
+                "lifeline-daemon: event watch unavailable for {}: {e}; periodic scanning remains active",
+                root.display()
+            ),
+        }
+    }
+    if watched_roots == 0 {
+        eprintln!("lifeline-daemon: no event watches active; using periodic scans only");
+    }
+
+    print_scan(&mut watcher);
     loop {
-        for event in watcher.scan() {
-            println!("{event}");
+        // Any filesystem event triggers a reconciliation scan. Multiple events
+        // are naturally coalesced, avoiding one full walk per individual write.
+        // The timeout guarantees a full scan even if notifications are lost.
+        match rx.recv_timeout(Duration::from_millis(cfg.poll_ms)) {
+            Ok(Ok(_event)) => {
+                while rx.try_recv().is_ok() {}
+                print_scan(&mut watcher);
+            }
+            Ok(Err(error)) => {
+                eprintln!("lifeline-daemon: filesystem notification error: {error}");
+                print_scan(&mut watcher);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => print_scan(&mut watcher),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                eprintln!("lifeline-daemon: filesystem event channel closed; periodic scanning only");
+                loop {
+                    thread::sleep(Duration::from_millis(cfg.poll_ms));
+                    print_scan(&mut watcher);
+                }
+            }
         }
-        if once {
-            break;
-        }
-        thread::sleep(Duration::from_millis(cfg.poll_ms));
     }
 }
