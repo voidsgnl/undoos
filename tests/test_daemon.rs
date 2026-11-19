@@ -342,3 +342,60 @@ fn daemon_recognizes_directory_move_as_individual_reversible_file_moves() {
     assert_eq!(fs::read_to_string(&second).unwrap(), "two");
     let _ = fs::remove_dir_all(&root);
 }
+
+
+#[test]
+fn daemon_recognizes_rename_after_restart_and_preserves_identity_through_undo_redo() {
+    let (root, home, watched, config) = setup("daemon-rename-restart", "");
+    let old = watched.join("before-restart.txt");
+    let new = watched.join("after-restart.txt");
+    fs::write(&old, "identity survives daemon restart").unwrap();
+
+    // First process establishes the baseline and persists device/inode.
+    let initial = daemon_once(&home, &config);
+    assert!(initial.status.success(), "initial scan failed");
+    assert!(stdout(&initial).contains("tracking"));
+
+    // The daemon is stopped here. The rename happens between two processes.
+    fs::rename(&old, &new).unwrap();
+    let restarted = daemon_once(&home, &config);
+    assert!(restarted.status.success(), "restart scan failed: {}", String::from_utf8_lossy(&restarted.stderr));
+    assert!(stdout(&restarted).contains("moved"), "restart did not recognize the move: {}", stdout(&restarted));
+
+    let undone = lifeline(&home, &["undo"]);
+    assert!(undone.status.success(), "undo failed: {}", String::from_utf8_lossy(&undone.stderr));
+    assert_eq!(fs::read_to_string(&old).unwrap(), "identity survives daemon restart");
+    assert!(!new.exists());
+
+    // A later daemon scan must still know the baseline belongs to the old path.
+    let after_undo = daemon_once(&home, &config);
+    assert!(after_undo.status.success());
+    assert!(!stdout(&after_undo).contains("deleted"), "baseline path became stale after undo: {}", stdout(&after_undo));
+
+    let redone = lifeline(&home, &["redo"]);
+    assert!(redone.status.success(), "redo failed: {}", String::from_utf8_lossy(&redone.stderr));
+    assert!(!old.exists());
+    assert_eq!(fs::read_to_string(&new).unwrap(), "identity survives daemon restart");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn daemon_does_not_guess_a_move_from_matching_contents() {
+    let (root, home, watched, config) = setup("daemon-no-content-guess", "");
+    let old = watched.join("old.txt");
+    let new = watched.join("new.txt");
+    fs::write(&old, "same bytes do not mean same file").unwrap();
+    assert!(daemon_once(&home, &config).status.success());
+
+    fs::remove_file(&old).unwrap();
+    fs::write(&new, "same bytes do not mean same file").unwrap();
+    let scan = daemon_once(&home, &config);
+    assert!(scan.status.success());
+    let output = stdout(&scan);
+    assert!(!output.contains("moved"), "different inode was incorrectly classified as a move: {output}");
+    assert!(output.contains("deleted"), "old file deletion should be recorded: {output}");
+    assert!(output.contains("tracking"), "new file should be tracked independently: {output}");
+
+    let _ = fs::remove_dir_all(&root);
+}
