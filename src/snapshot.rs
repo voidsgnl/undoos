@@ -23,16 +23,37 @@ pub fn store(id: u64, src: &Path) -> Result<String, String> {
     let destination = path_for(&name);
     let temporary = destination.with_file_name(format!("{name}.tmp-{}", std::process::id()));
     let result = (|| -> io::Result<()> {
-        fs::copy(src, &temporary)?;
-        let file = OpenOptions::new().read(true).open(&temporary)?;
-        file.sync_all()?;
-        fs::rename(&temporary, &destination)
+        let mut input = fs::File::open(src)?;
+        let before = input.metadata()?;
+        let mut output = OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+        io::copy(&mut input, &mut output)?;
+        let after = fs::metadata(src)?;
+        let opened_after = input.metadata()?;
+        if !same_source_version(&before, &after) || !same_source_version(&before, &opened_after) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "source changed while being snapshotted"));
+        }
+        output.sync_all()?;
+        fs::rename(&temporary, &destination)?;
+        // Persist the snapshot's directory entry, not just its contents.
+        OpenOptions::new().read(true).open(dir())?.sync_all()?;
+        Ok(())
     })();
     if let Err(err) = result {
         let _ = fs::remove_file(&temporary);
         return Err(format!("cannot snapshot {}: {err}", src.display()));
     }
     Ok(name)
+}
+
+fn same_source_version(a: &fs::Metadata, b: &fs::Metadata) -> bool {
+    if a.len() != b.len() || a.modified().ok() != b.modified().ok() { return false; }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        a.dev() == b.dev() && a.ino() == b.ino()
+    }
+    #[cfg(not(unix))]
+    { true }
 }
 
 pub fn remove(name: &str) {
