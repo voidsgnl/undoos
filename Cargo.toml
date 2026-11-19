@@ -15,4 +15,5 @@ name = "lifeline-daemon"
 path = "lifeline/daemon.rs"
 
 [dependencies]
+libc = "0.2"
 notify = "8"
