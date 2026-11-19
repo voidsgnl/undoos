@@ -388,8 +388,10 @@ fn daemon_does_not_guess_a_move_from_matching_contents() {
     fs::write(&old, "same bytes do not mean same file").unwrap();
     assert!(daemon_once(&home, &config).status.success());
 
-    fs::remove_file(&old).unwrap();
+    // Create the replacement while the original still exists so it cannot
+    // inherit a just-freed inode number.
     fs::write(&new, "same bytes do not mean same file").unwrap();
+    fs::remove_file(&old).unwrap();
     let scan = daemon_once(&home, &config);
     assert!(scan.status.success());
     let output = stdout(&scan);
