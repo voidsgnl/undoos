@@ -18,3 +18,32 @@ fn scratch(name:&str)->PathBuf{let d=std::env::temp_dir().join(format!("undoos-{
  let r=scratch("redo-modified");let h=r.join("home");let f=r.join("notes.txt");fs::write(&f,"old").unwrap();assert!(lifeline(&h,&["snap",f.to_str().unwrap()]).status.success());fs::write(&f,"new").unwrap();
  assert!(lifeline(&h,&["undo"]).status.success());assert_eq!(fs::read_to_string(&f).unwrap(),"old");assert!(lifeline(&h,&["redo"]).status.success());assert_eq!(fs::read_to_string(&f).unwrap(),"new");let _=fs::remove_dir_all(r);
 }
+
+#[test]
+fn failed_restore_preparation_preserves_the_current_file() {
+ let r=scratch("restore-preparation-failure");let h=r.join("home");let file=r.join("notes.txt");
+ fs::write(&file,"saved version").unwrap();
+ assert!(lifeline(&h,&["snap",file.to_str().unwrap()]).status.success());
+ fs::remove_file(h.join("snapshots/1")).unwrap();
+ fs::write(&file,"current user version").unwrap();
+
+ let out=lifeline(&h,&["undo"]);
+ assert!(!out.status.success(),"undo should fail when its recovery copy is missing");
+ assert_eq!(fs::read_to_string(&file).unwrap(),"current user version");
+ let leftovers:Vec<_>=fs::read_dir(r).unwrap().filter_map(Result::ok).collect();
+ assert!(!leftovers.iter().any(|e|e.file_name().to_string_lossy().contains("lifeline-restore")));
+ let _=fs::remove_dir_all(r);
+}
+
+#[test]
+fn restore_replaces_existing_file_with_complete_saved_contents() {
+ let r=scratch("restore-atomic-replace");let h=r.join("home");let file=r.join("notes.txt");
+ fs::write(&file,"original complete contents").unwrap();
+ assert!(lifeline(&h,&["snap",file.to_str().unwrap()]).status.success());
+ fs::write(&file,"new contents that must be replaced").unwrap();
+
+ let out=lifeline(&h,&["undo"]);
+ assert!(out.status.success(),"{}",String::from_utf8_lossy(&out.stderr));
+ assert_eq!(fs::read_to_string(&file).unwrap(),"original complete contents");
+ let _=fs::remove_dir_all(r);
+}
