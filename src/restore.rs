@@ -123,12 +123,16 @@ pub fn undo_entry(entry: &Entry) -> Result<(), String> {
     let id = journal::next_id()?;
     let backup = if dest.is_file() { snapshot::store(id, dest)? } else { String::new() };
     if let Err(err) = apply_snapshot(&entry.snapshot, &entry.path) {
+        // apply_snapshot can fail after rename if the directory sync fails.
+        // Restore the pre-operation contents before reporting failure.
+        let _ = apply_snapshot(&backup, &entry.path);
         if !backup.is_empty() { snapshot::remove(&backup); }
         return Err(err);
     }
     if had_baseline {
         if let Err(err) = baseline::store(dest) {
             let _ = apply_snapshot(&backup, &entry.path);
+            if dest.is_file() { let _ = baseline::store(dest); }
             return Err(format!("could not update recovery baseline: {err}"));
         }
     }
@@ -185,12 +189,14 @@ pub fn redo_last() -> Result<Option<Entry>, String> {
     let had_baseline = ensure_no_conflict(dest)?;
     let backup = if dest.is_file() { snapshot::store(id, dest)? } else { String::new() };
     if let Err(err) = apply_snapshot(&restore.snapshot, &original.path) {
+        let _ = apply_snapshot(&backup, &original.path);
         if !backup.is_empty() { snapshot::remove(&backup); }
         return Err(err);
     }
     if had_baseline {
         if let Err(err) = baseline::store(dest) {
             let _ = apply_snapshot(&backup, &original.path);
+            if dest.is_file() { let _ = baseline::store(dest); }
             return Err(format!("could not update recovery baseline: {err}"));
         }
     }
