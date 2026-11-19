@@ -121,7 +121,7 @@ impl Watcher {
         for root in &roots {
             self.walk(root, &mut seen, &mut found, &mut incomplete, &mut events);
         }
-        self.detect_moves(&seen, &found, &mut events);
+        self.detect_moves(&seen, &found, &incomplete, &mut events);
         for path in found {
             match fs::symlink_metadata(&path) {
                 Ok(meta) => if let Err(err) = self.check_file(&path, &meta, &mut events) {
@@ -187,42 +187,84 @@ impl Watcher {
         }
     }
 
-    /// Recognize a move only when the kernel reports identical device/inode.
-    fn detect_moves(&mut self, seen: &HashSet<PathBuf>, found: &[PathBuf], events: &mut Vec<Event>) {
+    /// Recognize moves using identities persisted with baselines. This also
+    /// works on the first scan after a daemon restart.
+    fn detect_moves(
+        &mut self,
+        seen: &HashSet<PathBuf>,
+        found: &[PathBuf],
+        incomplete: &HashSet<PathBuf>,
+        events: &mut Vec<Event>,
+    ) {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            let mut destinations = HashMap::<(u64, u64), PathBuf>::new();
+            let mut destinations = HashMap::<(u64, u64), Vec<PathBuf>>::new();
             for path in found {
                 if baseline::exists(path) { continue; }
                 if let Ok(meta) = fs::symlink_metadata(path) {
-                    destinations.insert((meta.dev(), meta.ino()), path.clone());
+                    destinations.entry((meta.dev(), meta.ino())).or_default().push(path.clone());
                 }
             }
-            let old_paths: Vec<PathBuf> = self.cache.keys()
-                .filter(|path| !seen.contains(*path) && baseline::exists(path))
-                .cloned().collect();
-            for old in old_paths {
-                let stamp = match self.cache.get(&old) { Some(s) => *s, None => continue };
-                let new = match destinations.remove(&(stamp.device, stamp.inode)) { Some(p) => p, None => continue };
-                let (old_text, new_text) = match (old.to_str(), new.to_str()) { (Some(a), Some(b)) => (a,b), _ => continue };
-                if let Err(err) = baseline::relocate(&old, &new) {
-                    events.push(Event::error(&new, &err)); continue;
+
+            let old_paths = match baseline::list_all() {
+                Ok(paths) => paths,
+                Err(err) => {
+                    events.push(Event { kind: "error", text: err });
+                    return;
                 }
+            };
+            let mut sources = HashMap::<(u64, u64), Vec<PathBuf>>::new();
+            for text in old_paths {
+                let old = PathBuf::from(text);
+                if seen.contains(&old) || old.exists()
+                    || incomplete.iter().any(|dir| old.starts_with(dir))
+                    || !self.roots.iter().any(|root| root.exists() && old.starts_with(root))
+                {
+                    continue;
+                }
+                if let Some(identity) = baseline::identity(&old) {
+                    sources.entry(identity).or_default().push(old);
+                }
+            }
+
+            // Only pair one old path with one new path. Hard links or duplicate
+            // identities are ambiguous, so leave them to normal reconciliation.
+            for (identity, old_group) in sources {
+                let new_group = match destinations.get(&identity) {
+                    Some(paths) if paths.len() == 1 && old_group.len() == 1 => paths[0].clone(),
+                    _ => continue,
+                };
+                let old = old_group[0].clone();
+                let (old_text, new_text) = match (old.to_str(), new_group.to_str()) {
+                    (Some(a), Some(b)) => (a, b),
+                    _ => continue,
+                };
                 let id = match journal::next_id() {
                     Ok(id) => id,
-                    Err(err) => { events.push(Event::error(&new, &err)); continue; }
+                    Err(err) => { events.push(Event::error(&new_group, &err)); continue; }
                 };
+                if let Err(err) = baseline::relocate(&old, &new_group) {
+                    events.push(Event::error(&new_group, &err));
+                    continue;
+                }
                 if let Err(err) = journal::append(id, "move", old_text, new_text) {
-                    events.push(Event::error(&new, &err)); continue;
+                    let _ = baseline::relocate(&new_group, &old);
+                    events.push(Event::error(&new_group, &err));
+                    continue;
                 }
                 self.cache.remove(&old);
-                if let Ok(meta) = fs::symlink_metadata(&new) { self.cache.insert(new.clone(), file_stamp(&meta)); }
-                events.push(Event { kind: "moved", text: format!("{} -> {}", old.display(), new.display()) });
+                if let Ok(meta) = fs::symlink_metadata(&new_group) {
+                    self.cache.insert(new_group.clone(), file_stamp(&meta));
+                }
+                events.push(Event {
+                    kind: "moved",
+                    text: format!("{} -> {}", old.display(), new_group.display()),
+                });
             }
         }
         #[cfg(not(unix))]
-        { let _ = (seen, found, events); }
+        { let _ = (seen, found, incomplete, events); }
     }
 
     fn check_file(
