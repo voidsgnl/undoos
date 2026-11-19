@@ -72,6 +72,29 @@ fn daemon_saves_the_old_version_when_a_file_changes() {
 }
 
 #[test]
+fn undo_refuses_to_overwrite_edits_made_after_the_watcher_saved_a_version() {
+    let (root, home, watched, config) = setup("daemon-recovery-conflict", "");
+    let file = watched.join("notes.txt");
+
+    fs::write(&file, "version one").unwrap();
+    assert!(daemon_once(&home, &config).status.success());
+    fs::write(&file, "version two").unwrap();
+    let saved = daemon_once(&home, &config);
+    assert!(stdout(&saved).contains("saved"));
+
+    // This edit happens after Lifeline's last recorded state. Undo must not
+    // silently replace it with the older snapshot.
+    fs::write(&file, "newer user edit").unwrap();
+    let undo = lifeline(&home, &["undo"]);
+    assert!(!undo.status.success(), "undo should report a recovery conflict");
+    let message = String::from_utf8_lossy(&undo.stderr);
+    assert!(message.contains("recovery conflict"), "unexpected error: {message}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "newer user edit");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn daemon_saves_a_file_that_gets_deleted() {
     let (root, home, watched, config) = setup("daemon-delete", "");
     let file = watched.join("precious.txt");
