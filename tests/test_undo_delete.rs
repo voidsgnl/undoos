@@ -30,7 +30,7 @@ fn failed_restore_preparation_preserves_the_current_file() {
  let out=lifeline(&h,&["undo"]);
  assert!(!out.status.success(),"undo should fail when its recovery copy is missing");
  assert_eq!(fs::read_to_string(&file).unwrap(),"current user version");
- let leftovers:Vec<_>=fs::read_dir(r).unwrap().filter_map(Result::ok).collect();
+ let leftovers:Vec<_>=fs::read_dir(&r).unwrap().filter_map(Result::ok).collect();
  assert!(!leftovers.iter().any(|e|e.file_name().to_string_lossy().contains("lifeline-restore")));
  let _=fs::remove_dir_all(r);
 }
