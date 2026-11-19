@@ -61,3 +61,38 @@ fn atomic_restore_preserves_saved_file_permissions() {
  assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777,0o755);
  let _=fs::remove_dir_all(r);
 }
+
+#[test]
+fn next_command_finishes_recording_an_interrupted_undo() {
+ let r=scratch("reconcile-finished-undo");let h=r.join("home");let file=r.join("notes.txt");
+ fs::create_dir_all(h.join("snapshots")).unwrap();
+ fs::write(h.join("snapshots/1"),"saved version").unwrap();
+ fs::write(h.join("snapshots/2"),"version before interrupted undo").unwrap();
+ fs::write(&file,"saved version").unwrap(); // Atomic replacement already happened before the crash.
+ fs::write(h.join("journal.tsv"),format!("1\\t1\\tsnap\\t{}\\t1\\n2\\t2\\tundo_pending\\t1\\t2\\n",file.display())).unwrap();
+
+ let out=lifeline(&h,&["log"]);
+ assert!(out.status.success(),"{}",String::from_utf8_lossy(&out.stderr));
+ let log=String::from_utf8_lossy(&out.stdout);
+ assert!(log.contains("restored"),"{log}");
+ assert!(log.contains("entry #1"),"{log}");
+ let _=fs::remove_dir_all(r);
+}
+
+#[test]
+fn next_command_aborts_an_interrupted_undo_that_never_changed_the_file() {
+ let r=scratch("reconcile-aborted-undo");let h=r.join("home");let file=r.join("notes.txt");
+ fs::create_dir_all(h.join("snapshots")).unwrap();
+ fs::write(h.join("snapshots/1"),"saved version").unwrap();
+ fs::write(h.join("snapshots/2"),"version before interrupted undo").unwrap();
+ fs::write(&file,"version before interrupted undo").unwrap();
+ fs::write(h.join("journal.tsv"),format!("1\\t1\\tsnap\\t{}\\t1\\n2\\t2\\tundo_pending\\t1\\t2\\n",file.display())).unwrap();
+
+ let out=lifeline(&h,&["log"]);
+ assert!(out.status.success(),"{}",String::from_utf8_lossy(&out.stderr));
+ let log=String::from_utf8_lossy(&out.stdout);
+ assert!(log.contains("undo_abort"),"{log}");
+ assert!(!log.contains("restored"),"{log}");
+ assert_eq!(fs::read_to_string(&file).unwrap(),"version before interrupted undo");
+ let _=fs::remove_dir_all(r);
+}
