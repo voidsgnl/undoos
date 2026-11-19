@@ -69,7 +69,7 @@ fn next_command_finishes_recording_an_interrupted_undo() {
  fs::write(h.join("snapshots/1"),"saved version").unwrap();
  fs::write(h.join("snapshots/2"),"version before interrupted undo").unwrap();
  fs::write(&file,"saved version").unwrap(); // Atomic replacement already happened before the crash.
- fs::write(h.join("journal.tsv"),format!("1\\t1\\tsnap\\t{}\\t1\\n2\\t2\\tundo_pending\\t1\\t2\\n",file.display())).unwrap();
+ fs::write(h.join("journal.tsv"),format!("1\t1\tsnap\t{}\t1\n2\t2\tundo_pending\t1\t2\n",file.display())).unwrap();
 
  let out=lifeline(&h,&["log"]);
  assert!(out.status.success(),"{}",String::from_utf8_lossy(&out.stderr));
@@ -86,7 +86,7 @@ fn next_command_aborts_an_interrupted_undo_that_never_changed_the_file() {
  fs::write(h.join("snapshots/1"),"saved version").unwrap();
  fs::write(h.join("snapshots/2"),"version before interrupted undo").unwrap();
  fs::write(&file,"version before interrupted undo").unwrap();
- fs::write(h.join("journal.tsv"),format!("1\\t1\\tsnap\\t{}\\t1\\n2\\t2\\tundo_pending\\t1\\t2\\n",file.display())).unwrap();
+ fs::write(h.join("journal.tsv"),format!("1\t1\tsnap\t{}\t1\n2\t2\tundo_pending\t1\t2\n",file.display())).unwrap();
 
  let out=lifeline(&h,&["log"]);
  assert!(out.status.success(),"{}",String::from_utf8_lossy(&out.stderr));
