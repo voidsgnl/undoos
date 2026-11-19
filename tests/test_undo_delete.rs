@@ -47,3 +47,17 @@ fn restore_replaces_existing_file_with_complete_saved_contents() {
  assert_eq!(fs::read_to_string(&file).unwrap(),"original complete contents");
  let _=fs::remove_dir_all(r);
 }
+
+#[cfg(unix)]
+#[test]
+fn atomic_restore_preserves_saved_file_permissions() {
+ use std::os::unix::fs::PermissionsExt;
+ let r=scratch("restore-permissions");let h=r.join("home");let file=r.join("tool.sh");
+ fs::write(&file,"#!/bin/sh\necho lifeline\n").unwrap();
+ fs::set_permissions(&file,fs::Permissions::from_mode(0o755)).unwrap();
+ assert!(lifeline(&h,&["snap",file.to_str().unwrap()]).status.success());
+ fs::set_permissions(&file,fs::Permissions::from_mode(0o600)).unwrap();
+ assert!(lifeline(&h,&["undo"]).status.success());
+ assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777,0o755);
+ let _=fs::remove_dir_all(r);
+}
