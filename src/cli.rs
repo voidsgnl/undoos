@@ -32,6 +32,9 @@ pub fn parse(a:&[String])->Result<Command,String>{
     }
 }
 pub fn run(cmd:Command)->Result<(),String>{
+    if !matches!(cmd, Command::Help | Command::Version) {
+        restore::reconcile_pending()?;
+    }
     match cmd{
         Command::Help=>println!("{USAGE}"),Command::Version=>println!("lifeline {}",env!("CARGO_PKG_VERSION")),
         Command::Log=>{let es=journal::read_all()?;if es.is_empty(){println!("Nothing saved yet. Try: lifeline snap <file>");}for e in es{println!("{}",e.display());}},
