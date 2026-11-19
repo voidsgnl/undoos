@@ -92,20 +92,42 @@ impl Watcher {
     pub fn scan(&mut self) -> Vec<Event> {
         let mut events = Vec::new();
         let mut seen = HashSet::new();
+        // If any subtree could not be inspected, absence inside it is unknown,
+        // not proof of deletion. This prevents permission errors from creating
+        // false recovery events for files that are still present.
+        let mut incomplete = HashSet::new();
         let roots = self.roots.clone();
         for root in &roots {
-            self.walk(root, &mut seen, &mut events);
+            self.walk(root, &mut seen, &mut incomplete, &mut events);
         }
-        self.find_deleted(&seen, &mut events);
+        self.find_deleted(&seen, &incomplete, &mut events);
         events
     }
 
-    fn walk(&mut self, dir: &Path, seen: &mut HashSet<PathBuf>, events: &mut Vec<Event>) {
+    fn walk(
+        &mut self,
+        dir: &Path,
+        seen: &mut HashSet<PathBuf>,
+        incomplete: &mut HashSet<PathBuf>,
+        events: &mut Vec<Event>,
+    ) {
         let read = match fs::read_dir(dir) {
             Ok(r) => r,
-            Err(_) => return,
+            Err(err) => {
+                incomplete.insert(dir.to_path_buf());
+                events.push(Event::error(dir, &format!("cannot inspect directory: {err}")));
+                return;
+            }
         };
-        for entry in read.flatten() {
+        for item in read {
+            let entry = match item {
+                Ok(entry) => entry,
+                Err(err) => {
+                    incomplete.insert(dir.to_path_buf());
+                    events.push(Event::error(dir, &format!("cannot read directory entry: {err}")));
+                    continue;
+                }
+            };
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
             if self.ignore.iter().any(|p| name_matches(p, &name)) {
@@ -119,10 +141,14 @@ impl Watcher {
             // symlink_metadata: never follow links out of the watched folders.
             let meta = match fs::symlink_metadata(&path) {
                 Ok(m) => m,
-                Err(_) => continue,
+                Err(err) => {
+                    incomplete.insert(dir.to_path_buf());
+                    events.push(Event::error(&path, &format!("cannot inspect entry: {err}")));
+                    continue;
+                }
             };
             if meta.is_dir() {
-                self.walk(&path, seen, events);
+                self.walk(&path, seen, incomplete, events);
             } else if meta.is_file() && meta.len() <= self.max_bytes {
                 seen.insert(path.clone());
                 if let Err(err) = self.check_file(&path, &meta, events) {
@@ -179,7 +205,12 @@ impl Watcher {
         Ok(())
     }
 
-    fn find_deleted(&mut self, seen: &HashSet<PathBuf>, events: &mut Vec<Event>) {
+    fn find_deleted(
+        &mut self,
+        seen: &HashSet<PathBuf>,
+        incomplete: &HashSet<PathBuf>,
+        events: &mut Vec<Event>,
+    ) {
         let known = match baseline::list_all() {
             Ok(k) => k,
             Err(e) => {
@@ -192,7 +223,10 @@ impl Watcher {
         };
         for text in known {
             let path = PathBuf::from(&text);
-            if seen.contains(&path) || path.exists() {
+            if seen.contains(&path)
+                || path.exists()
+                || incomplete.iter().any(|dir| path.starts_with(dir))
+            {
                 continue;
             }
             // Only trust "deleted" if the watched folder itself is still there.
