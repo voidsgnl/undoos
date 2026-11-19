@@ -90,6 +90,11 @@ pub fn record_identity(path: &Path, _meta: &fs::Metadata) -> Result<(), String> 
     Ok(())
 }
 
+/// Whether a saved baseline exists for this path.
+pub fn exists(path: &Path) -> bool {
+    file_for(path).exists()
+}
+
 /// Make the file's current contents its new baseline. The copy is staged
 /// beside the destination and renamed into place only after a stable read.
 pub fn store(path: &Path) -> Result<(), String> {
