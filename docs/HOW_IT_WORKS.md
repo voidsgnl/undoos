@@ -6,44 +6,51 @@ Written for contributors. No jargon.
 
 Lifeline keeps two things:
 
-1. **A notebook** (the *journal*). Every time something is saved, a line is added: what, where, when.
-2. **A shelf** (the *snapshots*). A saved copy of each file, labelled with the same number as its notebook line.
+1. **A notebook** (the *journal*). Every saved change and recovery action gets a line: what, where, when.
+2. **A shelf** (the *snapshots*). Saved file contents, labelled with journal entry IDs.
 
-Undoing is reading the notebook backwards and putting copies from the shelf back where they came from.
+The journal is append-only during normal operation. Undoing does not delete the original entry or its snapshot. Instead, Lifeline appends a `restore` event that points back to the saved entry. Redo appends a `redo` event that points to the restore event it reverses.
 
 ## Where the code lives
 
 | File | Job |
 |---|---|
 | `src/main.rs` | Starts the program |
-| `src/cli.rs` | Reads what you typed and runs the right thing |
-| `src/journal.rs` | The notebook |
-| `src/snapshot.rs` | The shelf |
-| `src/restore.rs` | Puts things back |
-| `src/guard.rs` | Asks "are you sure?" before overwriting |
-| `src/watcher.rs` | Notices changes (not wired up yet) |
-| `lifeline/daemon.rs` | Background service that will use the watcher (stub) |
+| `src/cli.rs` | Reads commands and dispatches them |
+| `src/journal.rs` | Reads and appends journal events; determines which snapshots are active |
+| `src/snapshot.rs` | Stores saved file copies |
+| `src/restore.rs` | Applies snapshots and records undo/redo events |
+| `src/guard.rs` | Asks before overwriting |
+| `src/watcher.rs` | Scans watched folders for changed and deleted files |
+| `lifeline/daemon.rs` | Runs the watcher in the background |
 
-## The journal format
+## Journal format
 
 `journal.tsv`, one entry per line, tab-separated:
 
 ```
-id  unix_time  kind  path_or_name  snapshot
+id  unix_time  kind  path_or_target_id  snapshot
 ```
 
-`kind` is `snap` (a saved file) or `checkpoint` (a named marker).
+Kinds currently include:
+- `snap`: a saved file version.
+- `checkpoint`: a named timeline marker.
+- `restore`: an undo action; its path field identifies the snapshot entry it compensates.
+- `redo`: a redo action; its path field identifies the restore event it reverses.
+
+For a restore event, an empty snapshot field means the file did not exist immediately before the restore. This is important when undoing a deletion: redo must delete the restored file again.
 
 ## Rewinding
 
-To rewind to entry `N`, lifeline takes every entry newer than `N` and restores them **newest first**. A file saved several times ends up with its oldest saved copy, which is its state at `N`. Then the newer entries and their snapshots are deleted.
+To rewind to entry `N`, Lifeline selects saved entries newer than `N` that are currently active and restores them newest first. If the same file was saved several times, the oldest relevant version ends up on disk. Every restoration is appended to the journal. The old entries and their recovery copies are retained.
 
-## Known limitations
+## Safety notes and limitations
 
 - Snapshots are full copies, so they use real disk space. Deduplication or deltas are planned.
-- You have to run `lifeline snap` yourself. The daemon that does it automatically is not built.
-- Restoring overwrites the current file without saving it first, so there is no "undo the undo" yet. The confirmation prompt is the safety net.
-- Only regular files are tracked. No package installs, settings, directories or permissions yet.
+- Recovery currently operates on regular files; it does not yet reverse package installs, system settings, directories, permissions, or remote actions.
+- The journal is append-only through normal CLI recovery flows. It is not yet tamper-evident or protected against manual edits or disk failure.
+- Recovery copies are retained; automatic retention and garbage collection are not implemented.
+- Restores currently use file copies and are not a fully transactional filesystem operation. A power loss during a restore can still require manual inspection.
 - Paths and checkpoint names cannot contain tabs or newlines.
 
 ## Running the tests
