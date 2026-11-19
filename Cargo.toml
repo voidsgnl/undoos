@@ -1,0 +1,17 @@
+[package]
+name = "undoos"
+version = "0.1.0"
+edition = "2021"
+description = "Lifeline for your Linux PC: a system-wide undo button."
+license = "MIT"
+repository = "https://github.com/voidsgnl/undoos"
+
+[[bin]]
+name = "lifeline"
+path = "src/main.rs"
+
+[[bin]]
+name = "lifeline-daemon"
+path = "lifeline/daemon.rs"
+
+[dependencies]
