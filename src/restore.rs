@@ -140,7 +140,8 @@ pub fn reconcile_pending() -> Result<(), String> {
 
         match (source_exists, destination_exists) {
             (true, false) => {
-                reconcile_move_baseline(source, destination)?;
+                // The rename never happened, so the baseline must stay with
+                // the still-existing source path.
                 journal::append(id, aborted_kind, &pending.path, "")?;
             }
             (false, true) => {
