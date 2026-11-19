@@ -201,7 +201,7 @@ impl Watcher {
             let mut destinations = HashMap::<(u64, u64, i64, u32), Vec<PathBuf>>::new();
             for path in found {
                 if baseline::exists(path) { continue; }
-                if let Some(identity) = baseline::identity(path) {
+                if let Some(identity) = baseline::live_identity(path) {
                     destinations.entry(identity).or_default().push(path.clone());
                 }
             }
