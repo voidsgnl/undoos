@@ -293,6 +293,11 @@ impl Watcher {
             return Ok(());
         }
 
+        if baseline::identity(path).is_none() {
+            // Upgrade older baseline records so future moves survive restarts.
+            baseline::record_identity(path, meta)?;
+        }
+
         if baseline::same_as(path)? {
             // Touched but not changed.
             self.cache.insert(path.to_path_buf(), stamp);
