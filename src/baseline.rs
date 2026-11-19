@@ -8,7 +8,9 @@
 //! Each baseline is `<home>/baseline/<hash>` plus a `<hash>.path` note that
 //! records which file it belongs to.
 
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::path::{Path, PathBuf};
 
 use crate::journal;
@@ -44,14 +46,79 @@ pub fn exists(path: &Path) -> bool {
     file_for(path).exists()
 }
 
-/// Make the file's current contents its new baseline.
+/// Make the file's current contents its new baseline. The copy is staged
+/// beside the destination and renamed into place only after a stable read.
 pub fn store(path: &Path) -> Result<(), String> {
     fs::create_dir_all(dir()).map_err(|e| format!("cannot create baseline dir: {e}"))?;
-    fs::copy(path, file_for(path))
-        .map_err(|e| format!("cannot copy {}: {e}", path.display()))?;
-    fs::write(sidecar_for(path), path.to_string_lossy().as_bytes())
+    let destination = file_for(path);
+    copy_stable(path, &destination)?;
+    let note = sidecar_for(path);
+    atomic_write(&note, path.to_string_lossy().as_bytes())
         .map_err(|e| format!("cannot write baseline note: {e}"))?;
     Ok(())
+}
+
+static TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
+fn temp_path(destination: &Path) -> PathBuf {
+    let id = TEMP_ID.fetch_add(1, Ordering::Relaxed);
+    let mut name = destination.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".tmp-{}-{id}", std::process::id()));
+    destination.with_file_name(name)
+}
+
+/// Copy a changing source without accepting a torn or mixed-version read.
+fn copy_stable(source: &Path, destination: &Path) -> Result<(), String> {
+    for attempt in 0..3 {
+        let mut input = File::open(source)
+            .map_err(|e| format!("cannot open {}: {e}", source.display()))?;
+        let before = input.metadata()
+            .map_err(|e| format!("cannot inspect {}: {e}", source.display()))?;
+        let temporary = temp_path(destination);
+        let result = (|| -> io::Result<()> {
+            let mut output = OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+            io::copy(&mut input, &mut output)?;
+            output.sync_all()?;
+            let after = fs::metadata(source)?;
+            let opened_after = input.metadata()?;
+            if !same_version(&before, &after) || !same_version(&before, &opened_after) {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "source changed while being copied"));
+            }
+            fs::rename(&temporary, destination)?;
+            Ok(())
+        })();
+        if result.is_ok() { return Ok(()); }
+        let _ = fs::remove_file(&temporary);
+        let err = result.unwrap_err();
+        if err.kind() != io::ErrorKind::Interrupted || attempt == 2 {
+            return Err(format!("cannot create stable baseline for {}: {err}", source.display()));
+        }
+    }
+    unreachable!()
+}
+
+fn same_version(a: &fs::Metadata, b: &fs::Metadata) -> bool {
+    if a.len() != b.len() || a.modified().ok() != b.modified().ok() { return false; }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        a.dev() == b.dev() && a.ino() == b.ino()
+    }
+    #[cfg(not(unix))]
+    { true }
+}
+
+fn atomic_write(destination: &Path, contents: &[u8]) -> io::Result<()> {
+    let temporary = temp_path(destination);
+    let result = (|| {
+        let mut file = OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+        use std::io::Write;
+        file.write_all(contents)?;
+        file.sync_all()?;
+        fs::rename(&temporary, destination)
+    })();
+    if result.is_err() { let _ = fs::remove_file(&temporary); }
+    result
 }
 
 /// Throw the baseline away (the file is gone and has been saved).
