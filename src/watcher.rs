@@ -187,8 +187,8 @@ impl Watcher {
         }
     }
 
-    /// Recognize moves using identities persisted with baselines. This also
-    /// works on the first scan after a daemon restart.
+    /// Recognize moves using persisted device/inode/birth-time identities.
+    /// Birth time prevents a quickly reused inode from looking like a rename.
     fn detect_moves(
         &mut self,
         seen: &HashSet<PathBuf>,
@@ -196,14 +196,13 @@ impl Watcher {
         incomplete: &HashSet<PathBuf>,
         events: &mut Vec<Event>,
     ) {
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         {
-            use std::os::unix::fs::MetadataExt;
-            let mut destinations = HashMap::<(u64, u64), Vec<PathBuf>>::new();
+            let mut destinations = HashMap::<(u64, u64, i64, u32), Vec<PathBuf>>::new();
             for path in found {
                 if baseline::exists(path) { continue; }
-                if let Ok(meta) = fs::symlink_metadata(path) {
-                    destinations.entry((meta.dev(), meta.ino())).or_default().push(path.clone());
+                if let Some(identity) = baseline::identity(path) {
+                    destinations.entry(identity).or_default().push(path.clone());
                 }
             }
 
@@ -214,7 +213,7 @@ impl Watcher {
                     return;
                 }
             };
-            let mut sources = HashMap::<(u64, u64), Vec<PathBuf>>::new();
+            let mut sources = HashMap::<(u64, u64, i64, u32), Vec<PathBuf>>::new();
             for text in old_paths {
                 let old = PathBuf::from(text);
                 if seen.contains(&old) || old.exists()
@@ -263,7 +262,7 @@ impl Watcher {
                 });
             }
         }
-        #[cfg(not(unix))]
+        #[cfg(not(target_os = "linux"))]
         { let _ = (seen, found, incomplete, events); }
     }
 
