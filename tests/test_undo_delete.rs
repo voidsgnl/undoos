@@ -1,48 +1,20 @@
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-
-fn lifeline(home: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_lifeline"))
-        .args(args)
-        .env("LIFELINE_HOME", home)
-        .env("LIFELINE_YES", "1")
-        .output()
-        .expect("failed to run lifeline")
+use std::path::{Path,PathBuf};
+use std::process::{Command,Output};
+fn lifeline(home:&Path,args:&[&str])->Output{Command::new(env!("CARGO_BIN_EXE_lifeline")).args(args).env("LIFELINE_HOME",home).env("LIFELINE_YES","1").output().expect("failed to run lifeline")}
+fn scratch(name:&str)->PathBuf{let d=std::env::temp_dir().join(format!("undoos-{}-{}",name,std::process::id()));let _=fs::remove_dir_all(&d);fs::create_dir_all(&d).unwrap();d}
+#[test] fn undo_brings_back_deleted_file_and_keeps_history(){
+ let r=scratch("undo-delete");let h=r.join("home");let f=r.join("important.txt");fs::write(&f,"do not lose me").unwrap();
+ assert!(lifeline(&h,&["snap",f.to_str().unwrap()]).status.success());fs::remove_file(&f).unwrap();
+ let o=lifeline(&h,&["undo"]);assert!(o.status.success(),"{}",String::from_utf8_lossy(&o.stderr));assert_eq!(fs::read_to_string(&f).unwrap(),"do not lose me");
+ let log=String::from_utf8_lossy(&lifeline(&h,&["log"]).stdout).to_string();assert!(log.contains("snap"));assert!(log.contains("restored"));assert!(h.join("snapshots/1").exists());let _=fs::remove_dir_all(r);
 }
-
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("undoos-{}-{}", name, std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
+#[test] fn undo_with_nothing_saved_is_harmless(){let r=scratch("undo-empty");let o=lifeline(&r.join("home"),&["undo"]);assert!(o.status.success());assert!(String::from_utf8_lossy(&o.stdout).contains("Nothing to undo"));let _=fs::remove_dir_all(r);}
+#[test] fn redo_reverses_undo_of_deleted_file(){
+ let r=scratch("redo-delete");let h=r.join("home");let f=r.join("important.txt");fs::write(&f,"keep me").unwrap();assert!(lifeline(&h,&["snap",f.to_str().unwrap()]).status.success());fs::remove_file(&f).unwrap();
+ assert!(lifeline(&h,&["undo"]).status.success());assert!(f.exists());let o=lifeline(&h,&["redo"]);assert!(o.status.success(),"{}",String::from_utf8_lossy(&o.stderr));assert!(!f.exists());let _=fs::remove_dir_all(r);
 }
-
-#[test]
-fn undo_brings_back_a_deleted_file() {
-    let root = scratch("undo-delete");
-    let home = root.join("home");
-    let file = root.join("important.txt");
-    fs::write(&file, "do not lose me").unwrap();
-
-    let out = lifeline(&home, &["snap", file.to_str().unwrap()]);
-    assert!(out.status.success(), "snap failed: {}", String::from_utf8_lossy(&out.stderr));
-
-    fs::remove_file(&file).unwrap();
-    assert!(!file.exists());
-
-    let out = lifeline(&home, &["undo"]);
-    assert!(out.status.success(), "undo failed: {}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(fs::read_to_string(&file).unwrap(), "do not lose me");
-
-    let _ = fs::remove_dir_all(&root);
-}
-
-#[test]
-fn undo_with_nothing_saved_is_harmless() {
-    let root = scratch("undo-empty");
-    let out = lifeline(&root.join("home"), &["undo"]);
-    assert!(out.status.success());
-    assert!(String::from_utf8_lossy(&out.stdout).contains("Nothing to undo"));
-    let _ = fs::remove_dir_all(&root);
+#[test] fn undo_of_modified_file_can_be_redone(){
+ let r=scratch("redo-modified");let h=r.join("home");let f=r.join("notes.txt");fs::write(&f,"old").unwrap();assert!(lifeline(&h,&["snap",f.to_str().unwrap()]).status.success());fs::write(&f,"new").unwrap();
+ assert!(lifeline(&h,&["undo"]).status.success());assert_eq!(fs::read_to_string(&f).unwrap(),"old");assert!(lifeline(&h,&["redo"]).status.success());assert_eq!(fs::read_to_string(&f).unwrap(),"new");let _=fs::remove_dir_all(r);
 }
