@@ -17,8 +17,6 @@ pub struct Config {
     pub poll_ms: u64,
     /// Wait until a file has been quiet this long before saving it.
     pub settle_ms: u64,
-    /// Save at most one version of each file per this many seconds.
-    pub min_gap_s: u64,
     /// Skip files bigger than this many megabytes.
     pub max_file_mb: u64,
 }
@@ -30,7 +28,6 @@ impl Default for Config {
             ignore: Vec::new(),
             poll_ms: 2000,
             settle_ms: 1000,
-            min_gap_s: 10,
             max_file_mb: 50,
         }
     }
@@ -71,7 +68,9 @@ impl Config {
                 }
                 ("watch", "poll_ms") => cfg.poll_ms = parse_num(value).map_err(bad)?,
                 ("watch", "settle_ms") => cfg.settle_ms = parse_num(value).map_err(bad)?,
-                ("watch", "min_gap_s") => cfg.min_gap_s = parse_num(value).map_err(bad)?,
+                // Older configs may still contain this option. It is ignored:
+                // every distinct observed version is eligible for a recovery point.
+                ("watch", "min_gap_s") => { let _ = parse_num(value).map_err(bad)?; }
                 ("ignore", "patterns") => cfg.ignore = parse_array(value).map_err(bad)?,
                 ("storage", "max_file_mb") => cfg.max_file_mb = parse_num(value).map_err(bad)?,
                 _ => {}
