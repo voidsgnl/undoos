@@ -1,12 +1,15 @@
 PREFIX ?= /usr/local
 
-.PHONY: build test install uninstall clean
+.PHONY: build test check install uninstall clean
 
 build:
 	cargo build --release
 
 test:
 	cargo test
+
+check:
+	./scripts/check.sh
 
 install: build
 	install -Dm755 target/release/lifeline $(DESTDIR)$(PREFIX)/bin/lifeline
