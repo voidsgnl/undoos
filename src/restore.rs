@@ -1,7 +1,8 @@
 //! Recovery operations append compensating events; original history is immutable.
 use std::fs;
 use std::path::Path;
-use crate::journal::{self,Entry};
+use crate::{baseline, journal};
+use crate::journal::Entry;
 use crate::snapshot;
 
 fn apply_snapshot(name:&str,destination:&str)->Result<(),String>{
@@ -26,7 +27,12 @@ pub fn undo_entry(entry:&Entry)->Result<(),String>{
         let id = journal::next_id()?;
         if let Some(parent) = old.parent() { fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?; }
         fs::rename(new, old).map_err(|e| format!("cannot move {} back to {}: {e}", new.display(), old.display()))?;
+        if let Err(err) = baseline::relocate(new, old) {
+            let _ = fs::rename(old, new);
+            return Err(err);
+        }
         if let Err(err) = journal::append(id, "restore", &entry.id.to_string(), "") {
+            let _ = baseline::relocate(old, new);
             let _ = fs::rename(old, new);
             return Err(err);
         }
@@ -58,7 +64,12 @@ pub fn redo_last()->Result<Option<Entry>,String>{
         if !old.exists() { return Err(format!("cannot redo move: {} is missing", old.display())); }
         if let Some(parent) = new.parent() { fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?; }
         fs::rename(old, new).map_err(|e| format!("cannot move {} to {}: {e}", old.display(), new.display()))?;
+        if let Err(err) = baseline::relocate(old, new) {
+            let _ = fs::rename(new, old);
+            return Err(err);
+        }
         if let Err(err) = journal::append(id, "redo", &restore.id.to_string(), "") {
+            let _ = baseline::relocate(new, old);
             let _ = fs::rename(new, old);
             return Err(err);
         }
