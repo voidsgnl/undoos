@@ -224,26 +224,35 @@ pub fn list_all() -> Result<Vec<String>, String> {
 
 /// Move a baseline's storage key when the underlying file is renamed.
 pub fn relocate(old: &Path, new: &Path) -> Result<(), String> {
-    if exists(new) { return Err(format!("a baseline already exists for {}", new.display())); }
     let old_file = file_for(old);
     let new_file = file_for(new);
     let old_note = sidecar_for(old);
     let new_note = sidecar_for(new);
     let old_identity = identity_for(old);
     let new_identity = identity_for(new);
-    let saved_identity = fs::read(&old_identity).ok();
-    fs::rename(&old_file, &new_file)
-        .map_err(|e| format!("cannot relocate baseline for {}: {e}", old.display()))?;
-    if let Err(e) = atomic_write(&new_note, new.to_string_lossy().as_bytes()) {
-        let _ = fs::rename(&new_file, &old_file);
-        return Err(format!("cannot update baseline path note: {e}"));
+    let old_has = old_file.exists();
+    let new_has = new_file.exists();
+    if old_has && new_has {
+        return Err(format!("both old and new recovery baselines exist for {} and {}", old.display(), new.display()));
     }
+    if !old_has && !new_has {
+        return Err(format!("recovery baseline is missing for {}", old.display()));
+    }
+
+    // If the process stopped after moving the baseline data but before writing
+    // its sidecars, finish the metadata update instead of treating it as lost.
+    let saved_identity = fs::read(&old_identity).or_else(|_| fs::read(&new_identity)).ok();
+    if old_has {
+        fs::rename(&old_file, &new_file)
+            .map_err(|e| format!("cannot relocate baseline for {}: {e}", old.display()))?;
+    }
+    atomic_write(&new_note, new.to_string_lossy().as_bytes())
+        .map_err(|e| format!("cannot update baseline path note: {e}"))?;
     if let Some(identity) = saved_identity {
-        if let Err(e) = atomic_write(&new_identity, &identity) {
-            let _ = fs::rename(&new_file, &old_file);
-            let _ = fs::remove_file(&new_note);
-            return Err(format!("cannot relocate baseline identity: {e}"));
-        }
+        atomic_write(&new_identity, &identity)
+            .map_err(|e| format!("cannot relocate baseline identity: {e}"))?;
+    } else {
+        let _ = fs::remove_file(&new_identity);
     }
     let _ = fs::remove_file(old_note);
     let _ = fs::remove_file(old_identity);
