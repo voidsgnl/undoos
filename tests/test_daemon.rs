@@ -190,7 +190,7 @@ fn daemon_reacts_to_filesystem_events_without_waiting_for_poll_interval() {
     // native event path, rather than polling, notices the edit.
     let config_text = fs::read_to_string(&config).unwrap().replace(
         "settle_ms = 0",
-        "poll_ms = 10000\\nsettle_ms = 0",
+        "poll_ms = 10000\nsettle_ms = 0",
     );
     fs::write(&config, config_text).unwrap();
 
