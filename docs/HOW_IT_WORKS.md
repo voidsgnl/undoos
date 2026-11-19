@@ -37,7 +37,7 @@ Kinds currently include:
 - `checkpoint`: a named timeline marker.
 - `restore`: an undo action; its path field identifies the snapshot entry it compensates.
 - `redo`: a redo action; its path field identifies the restore event it reverses.
-- `move`: a same-filesystem move; its path and snapshot fields hold the original and new paths.
+- `move`: a same-filesystem move; its path and snapshot fields hold the original and new paths.\n- `undo_pending` / `redo_pending`: a durable intent written before changing a file.\n- `undo_abort` / `redo_abort`: records that an interrupted operation had not changed the live file.
 
 For a restore event, an empty snapshot field means the file did not exist immediately before the restore. This is important when undoing a deletion: redo must delete the restored file again.
 
@@ -54,7 +54,7 @@ To rewind to entry `N`, Lifeline selects saved entries newer than `N` that are c
 - The journal is append-only through normal CLI recovery flows. It is not yet tamper-evident or protected against manual edits or disk failure.
 - Recovery copies are retained; automatic retention and garbage collection are not implemented.
 - File restoration is staged in a temporary file beside the destination, flushed, and installed with an atomic rename. The containing directory is synced after the rename, reducing the chance of a partial file being exposed after interruption.
-- The filesystem change and its journal completion record are still separate operations. A power loss between them can leave the file changed while the journal lacks the matching `restore`/`redo` event; automatic transaction reconciliation is not implemented yet.
+- File undo and redo now write a durable pending-intent record after saving the pre-operation contents and before replacing the live file. On the next Lifeline CLI command, reconciliation compares the live file with both the intended snapshot and the pre-operation copy. If it matches the intended state, Lifeline records the missing completion; if it still matches the pre-operation state, Lifeline records an abort. If it matches neither, Lifeline stops and leaves the file untouched for manual attention. This covers interrupted file snapshot undo/redo; move operations do not yet use this transaction protocol.
 - For watched files with a baseline, undo and redo compare the live file with the last state Lifeline observed. If it differs or has disappeared unexpectedly, recovery stops and preserves the newer filesystem state. After a successful restore, the baseline is refreshed so successive undos remain consistent. Move recovery also checks persisted file identity when the filesystem provides it. Explicit one-off snapshots without a watcher baseline cannot yet receive this same content-conflict check.
 - Paths and checkpoint names cannot contain tabs or newlines.
 
