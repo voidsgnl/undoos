@@ -1,0 +1,13 @@
+# lifeline configuration (planned: read by lifeline-daemon, not used yet)
+
+[watch]
+# Folders to keep an eye on
+paths = ["~/Documents", "~/.config"]
+
+[ignore]
+# Things not worth remembering
+patterns = ["*.tmp", "*.swp", "node_modules", ".cache", "target"]
+
+[storage]
+max_size_gb = 5
+keep_days = 30
