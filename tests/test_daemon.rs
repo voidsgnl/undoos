@@ -115,3 +115,65 @@ fn daemon_refuses_to_start_without_a_config() {
     assert!(!out.status.success());
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn daemon_recovers_all_files_from_a_deleted_directory() {
+    let (root, home, watched, config) = setup("daemon-delete-tree", "");
+    let folder = watched.join("school");
+    fs::create_dir_all(folder.join("semester")).unwrap();
+    let first = folder.join("assignment.txt");
+    let second = folder.join("semester").join("notes.txt");
+    fs::write(&first, "assignment contents").unwrap();
+    fs::write(&second, "semester notes").unwrap();
+
+    let initial = daemon_once(&home, &config);
+    assert!(initial.status.success());
+    assert!(stdout(&initial).contains("tracking"));
+
+    fs::remove_dir_all(&folder).unwrap();
+    let deleted = daemon_once(&home, &config);
+    assert!(deleted.status.success());
+    let output = stdout(&deleted);
+    assert!(output.contains("deleted"), "expected deletion events: {output}");
+
+    // Each file has its own saved state. Undo repeatedly to restore the tree.
+    for _ in 0..2 {
+        let out = lifeline(&home, &["undo"]);
+        assert!(out.status.success(), "undo failed: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    assert_eq!(fs::read_to_string(&first).unwrap(), "assignment contents");
+    assert_eq!(fs::read_to_string(&second).unwrap(), "semester notes");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn daemon_does_not_report_a_missing_subtree_as_deleted_when_it_cannot_be_read() {
+    let (root, home, watched, config) = setup("daemon-unreadable", "");
+    let folder = watched.join("private");
+    fs::create_dir_all(&folder).unwrap();
+    let file = folder.join("keep.txt");
+    fs::write(&file, "still here").unwrap();
+
+    let initial = daemon_once(&home, &config);
+    assert!(initial.status.success());
+
+    // Run the daemon as an unprivileged user where possible. If the test
+    // process is root, permission bits alone do not reliably block read_dir,
+    // so this case is intentionally skipped rather than producing a false test.
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = fs::metadata(&folder).unwrap().permissions();
+    permissions.set_mode(0o000);
+    fs::set_permissions(&folder, permissions).unwrap();
+
+    if fs::read_dir(&folder).is_err() {
+        let scan = daemon_once(&home, &config);
+        assert!(!stdout(&scan).contains("deleted"));
+    }
+
+    let mut permissions = fs::metadata(&folder).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&folder, permissions).unwrap();
+    assert!(file.exists());
+    let _ = fs::remove_dir_all(&root);
+}
