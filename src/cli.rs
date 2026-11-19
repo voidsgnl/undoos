@@ -37,7 +37,7 @@ pub fn run(cmd:Command)->Result<(),String>{
         Command::Log=>{let es=journal::read_all()?;if es.is_empty(){println!("Nothing saved yet. Try: lifeline snap <file>");}for e in es{println!("{}",e.display());}},
         Command::Snap(p)=>snap(&p)?,
         Command::Undo=>{let e=journal::active_snapshots()?.into_iter().max_by_key(|e|e.id);
-            if let Some(e)=e{if !guard::confirm(&format!("Restore {} to its saved version?",e.path)){println!("Cancelled. Nothing was changed.");}
+            if let Some(e)=e{let question=if guard::would_overwrite(&e.path){format!("Restore {} to its saved version? The current version will be overwritten.",e.path)}else{format!("Restore {}?",e.path)};if !guard::confirm(&question){println!("Cancelled. Nothing was changed.");}
             else{restore::undo_entry(&e)?;println!("Restored {}. Original history kept.",e.path);}}else{println!("Nothing to undo.");}},
         Command::Redo=>{if let Some(e)=restore::redo_last()?{println!("Redid the undo of entry #{}.",e.path);}else{println!("Nothing to redo.");}},
         Command::Checkpoint(n)=>{let id=journal::next_id()?;journal::append(id,"checkpoint",&n,"")?;println!("Checkpoint '{n}' set at #{id}");},
