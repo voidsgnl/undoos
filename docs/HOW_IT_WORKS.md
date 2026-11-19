@@ -37,7 +37,9 @@ Kinds currently include:
 - `checkpoint`: a named timeline marker.
 - `restore`: an undo action; its path field identifies the snapshot entry it compensates.
 - `redo`: a redo action; its path field identifies the restore event it reverses.
-- `move`: a same-filesystem move; its path and snapshot fields hold the original and new paths.\n- `undo_pending` / `redo_pending`: a durable intent written before changing a file.\n- `undo_abort` / `redo_abort`: records that an interrupted operation had not changed the live file.
+- `move`: a same-filesystem move; its path and snapshot fields hold the original and new paths.
+- `undo_pending` / `redo_pending`: a durable intent written before changing a file.
+- `undo_abort` / `redo_abort`: records that an interrupted operation had not changed the live file.
 
 For a restore event, an empty snapshot field means the file did not exist immediately before the restore. This is important when undoing a deletion: redo must delete the restored file again.
 
