@@ -17,6 +17,29 @@ fn temporary_sibling(destination: &Path) -> PathBuf {
     destination.with_file_name(name)
 }
 
+/// Refuse to overwrite a watched file if it no longer matches the last
+/// state Lifeline observed when it recorded the undo point.
+fn ensure_no_conflict(path: &Path) -> Result<bool, String> {
+    if !baseline::exists(path) { return Ok(false); }
+    if !path.is_file() {
+        return Err(format!("recovery conflict: {} is no longer present; leaving the current filesystem state untouched", path.display()));
+    }
+    if !baseline::same_as(path)? {
+        return Err(format!("recovery conflict: {} changed after Lifeline recorded this event; leaving your newer version untouched", path.display()));
+    }
+    Ok(true)
+}
+
+/// If an identity is available, ensure this is still the file Lifeline recorded.
+fn ensure_move_identity(path: &Path) -> Result<(), String> {
+    if let Some(expected) = baseline::identity(path) {
+        if baseline::live_identity(path) != Some(expected) {
+            return Err(format!("recovery conflict: {} is no longer the file Lifeline recorded; refusing to move it", path.display()));
+        }
+    }
+    Ok(())
+}
+
 fn sync_parent(path: &Path) -> Result<(), String> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let directory = OpenOptions::new().read(true).open(parent)
@@ -76,6 +99,7 @@ pub fn undo_entry(entry: &Entry) -> Result<(), String> {
         let new = Path::new(&entry.snapshot);
         if old.exists() { return Err(format!("cannot undo move: {} already exists", old.display())); }
         if !new.exists() { return Err(format!("cannot undo move: {} is missing", new.display())); }
+        ensure_move_identity(new)?;
         let id = journal::next_id()?;
         if let Some(parent) = old.parent() { fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?; }
         fs::rename(new, old).map_err(|e| format!("cannot move {} back to {}: {e}", new.display(), old.display()))?;
@@ -95,14 +119,22 @@ pub fn undo_entry(entry: &Entry) -> Result<(), String> {
     if entry.kind != "snap" { return Ok(()); }
 
     let dest = Path::new(&entry.path);
+    let had_baseline = ensure_no_conflict(dest)?;
     let id = journal::next_id()?;
     let backup = if dest.is_file() { snapshot::store(id, dest)? } else { String::new() };
     if let Err(err) = apply_snapshot(&entry.snapshot, &entry.path) {
         if !backup.is_empty() { snapshot::remove(&backup); }
         return Err(err);
     }
+    if had_baseline {
+        if let Err(err) = baseline::store(dest) {
+            let _ = apply_snapshot(&backup, &entry.path);
+            return Err(format!("could not update recovery baseline: {err}"));
+        }
+    }
     if let Err(err) = journal::append(id, "restore", &entry.id.to_string(), &backup) {
         let _ = apply_snapshot(&backup, &entry.path);
+        if had_baseline && dest.is_file() { let _ = baseline::store(dest); }
         if !backup.is_empty() { snapshot::remove(&backup); }
         return Err(err);
     }
@@ -132,6 +164,7 @@ pub fn redo_last() -> Result<Option<Entry>, String> {
         let new = Path::new(&original.snapshot);
         if new.exists() { return Err(format!("cannot redo move: {} already exists", new.display())); }
         if !old.exists() { return Err(format!("cannot redo move: {} is missing", old.display())); }
+        ensure_move_identity(old)?;
         if let Some(parent) = new.parent() { fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?; }
         fs::rename(old, new).map_err(|e| format!("cannot move {} to {}: {e}", old.display(), new.display()))?;
         if let Err(err) = baseline::relocate(old, new) {
@@ -149,13 +182,21 @@ pub fn redo_last() -> Result<Option<Entry>, String> {
     }
 
     let dest = Path::new(&original.path);
+    let had_baseline = ensure_no_conflict(dest)?;
     let backup = if dest.is_file() { snapshot::store(id, dest)? } else { String::new() };
     if let Err(err) = apply_snapshot(&restore.snapshot, &original.path) {
         if !backup.is_empty() { snapshot::remove(&backup); }
         return Err(err);
     }
+    if had_baseline {
+        if let Err(err) = baseline::store(dest) {
+            let _ = apply_snapshot(&backup, &original.path);
+            return Err(format!("could not update recovery baseline: {err}"));
+        }
+    }
     if let Err(err) = journal::append(id, "redo", &restore.id.to_string(), &backup) {
         let _ = apply_snapshot(&backup, &original.path);
+        if had_baseline && dest.is_file() { let _ = baseline::store(dest); }
         if !backup.is_empty() { snapshot::remove(&backup); }
         return Err(err);
     }
