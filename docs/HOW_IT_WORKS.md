@@ -22,7 +22,7 @@ The journal is append-only during normal operation. Undoing does not delete the 
 | `src/restore.rs` | Applies snapshots and records undo/redo events |
 | `src/guard.rs` | Asks before overwriting |
 | `src/watcher.rs` | Scans watched folders for changed and deleted files |
-| `lifeline/daemon.rs` | Runs the watcher in the background |
+| `lifeline/daemon.rs` | Runs native filesystem event monitoring and periodic reconciliation |
 
 ## Journal format
 
