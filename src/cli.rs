@@ -36,9 +36,9 @@ pub fn run(cmd:Command)->Result<(),String>{
         Command::Help=>println!("{USAGE}"),Command::Version=>println!("lifeline {}",env!("CARGO_PKG_VERSION")),
         Command::Log=>{let es=journal::read_all()?;if es.is_empty(){println!("Nothing saved yet. Try: lifeline snap <file>");}for e in es{println!("{}",e.display());}},
         Command::Snap(p)=>snap(&p)?,
-        Command::Undo=>{let e=journal::active_snapshots()?.into_iter().max_by_key(|e|e.id);
-            if let Some(e)=e{let question=if guard::would_overwrite(&e.path){format!("Restore {} to its saved version? The current version will be overwritten.",e.path)}else{format!("Restore {}?",e.path)};if !guard::confirm(&question){println!("Cancelled. Nothing was changed.");}
-            else{restore::undo_entry(&e)?;println!("Restored {}. Original history kept.",e.path);}}else{println!("Nothing to undo.");}},
+        Command::Undo=>{let e=journal::active_snapshots()?.into_iter().chain(journal::active_moves()?.into_iter()).max_by_key(|e|e.id);
+            if let Some(e)=e{let question=if e.kind=="move"{format!("Move {} back to {}?",e.snapshot,e.path)}else if guard::would_overwrite(&e.path){format!("Restore {} to its saved version? The current version will be overwritten.",e.path)}else{format!("Restore {}?",e.path)};if !guard::confirm(&question){println!("Cancelled. Nothing was changed.");}
+            else{restore::undo_entry(&e)?;if e.kind=="move"{println!("Moved {} back to {}. Original history kept.",e.snapshot,e.path);}else{println!("Restored {}. Original history kept.",e.path);}}}else{println!("Nothing to undo.");}},
         Command::Redo=>{if let Some(e)=restore::redo_last()?{println!("Redid the undo of entry #{}.",e.path);}else{println!("Nothing to redo.");}},
         Command::Checkpoint(n)=>{let id=journal::next_id()?;journal::append(id,"checkpoint",&n,"")?;println!("Checkpoint '{n}' set at #{id}");},
         Command::Back(n)=>{let id=journal::find_checkpoint(&n)?.ok_or_else(||format!("no checkpoint named '{n}'"))?;rewind(id)?;},
@@ -54,7 +54,7 @@ fn snap(path:&str)->Result<(),String>{
     println!("Saved #{id}: {text}");Ok(())
 }
 fn rewind(id:u64)->Result<(),String>{
-    let count=journal::active_snapshots()?.iter().filter(|e|e.id>id).count();
+    let snaps=journal::active_snapshots()?;let moves=journal::active_moves()?;let count=snaps.iter().chain(moves.iter()).filter(|e|e.id>id).count();
     if count==0{println!("Already there. Nothing to rewind.");return Ok(());}
     if !guard::confirm(&format!("Rewind {count} saved change(s) back to #{id}? Each recovery will be recorded; history will be kept.")){
         println!("Cancelled. Nothing was changed.");return Ok(());
