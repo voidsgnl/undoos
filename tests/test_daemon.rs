@@ -213,7 +213,7 @@ fn daemon_reacts_to_filesystem_events_without_waiting_for_poll_interval() {
     let mut restored = false;
     while Instant::now() < deadline {
         let out = lifeline(&home, &["undo"]);
-        if out.status.success() {
+        if out.status.success() && stdout(&out).contains("Restored") {
             restored = true;
             break;
         }
