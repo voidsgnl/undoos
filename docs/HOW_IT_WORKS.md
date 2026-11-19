@@ -55,7 +55,7 @@ To rewind to entry `N`, Lifeline selects saved entries newer than `N` that are c
 - Recovery copies are retained; automatic retention and garbage collection are not implemented.
 - File restoration is staged in a temporary file beside the destination, flushed, and installed with an atomic rename. The containing directory is synced after the rename, reducing the chance of a partial file being exposed after interruption.
 - The filesystem change and its journal completion record are still separate operations. A power loss between them can leave the file changed while the journal lacks the matching `restore`/`redo` event; automatic transaction reconciliation is not implemented yet.
-- Conflict detection against edits made after a saved event is also not implemented yet. Lifeline may still replace a newer destination version when the user confirms an undo; keep independent backups of critical data while this limitation remains.
+- For watched files with a baseline, undo and redo compare the live file with the last state Lifeline observed. If it differs or has disappeared unexpectedly, recovery stops and preserves the newer filesystem state. After a successful restore, the baseline is refreshed so successive undos remain consistent. Move recovery also checks persisted file identity when the filesystem provides it. Explicit one-off snapshots without a watcher baseline cannot yet receive this same content-conflict check.
 - Paths and checkpoint names cannot contain tabs or newlines.
 
 ## Running the tests
