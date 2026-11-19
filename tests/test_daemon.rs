@@ -274,3 +274,71 @@ fn daemon_recovers_previous_contents_after_atomic_file_replacement() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "original contents");
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn daemon_recognizes_file_rename_and_supports_undo_redo() {
+    use std::process::Stdio;
+    use std::thread;
+    use std::time::{Duration, Instant};
+    let (root, home, watched, config) = setup("daemon-file-rename", "");
+    let old = watched.join("before.txt");
+    let new = watched.join("after.txt");
+    fs::write(&old, "same inode, same contents").unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_lifeline-daemon"))
+        .args(["--config", config.to_str().unwrap()]).env("LIFELINE_HOME", &home)
+        .stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
+    thread::sleep(Duration::from_millis(500));
+    fs::rename(&old, &new).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(4);
+    let mut undone = false;
+    while Instant::now() < deadline {
+        let out = lifeline(&home, &["undo"]);
+        if out.status.success() && stdout(&out).contains("Moved") { undone = true; break; }
+        thread::sleep(Duration::from_millis(100));
+    }
+    let _ = child.kill(); let _ = child.wait();
+    assert!(undone, "rename was not recorded as one reversible move");
+    assert_eq!(fs::read_to_string(&old).unwrap(), "same inode, same contents");
+    assert!(!new.exists());
+    let redone = lifeline(&home, &["redo"]);
+    assert!(redone.status.success(), "redo failed: {}", String::from_utf8_lossy(&redone.stderr));
+    assert!(!old.exists());
+    assert_eq!(fs::read_to_string(&new).unwrap(), "same inode, same contents");
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn daemon_recognizes_directory_move_as_individual_reversible_file_moves() {
+    use std::process::Stdio;
+    use std::thread;
+    use std::time::{Duration, Instant};
+    let (root, home, watched, config) = setup("daemon-directory-move", "");
+    let old_dir = watched.join("old-folder");
+    let new_dir = watched.join("new-folder");
+    fs::create_dir_all(old_dir.join("nested")).unwrap();
+    let first = old_dir.join("one.txt");
+    let second = old_dir.join("nested").join("two.txt");
+    fs::write(&first, "one").unwrap();
+    fs::write(&second, "two").unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_lifeline-daemon"))
+        .args(["--config", config.to_str().unwrap()]).env("LIFELINE_HOME", &home)
+        .stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
+    thread::sleep(Duration::from_millis(500));
+    fs::rename(&old_dir, &new_dir).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(4);
+    let mut moves = 0;
+    while Instant::now() < deadline && moves < 2 {
+        let out = lifeline(&home, &["log"]);
+        moves = stdout(&out).lines().filter(|line| line.contains("moved") && line.contains("->")).count();
+        thread::sleep(Duration::from_millis(100));
+    }
+    let _ = child.kill(); let _ = child.wait();
+    assert_eq!(moves, 2, "expected two file-level move records");
+    for _ in 0..2 {
+        let out = lifeline(&home, &["undo"]);
+        assert!(out.status.success(), "undo failed: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    assert_eq!(fs::read_to_string(&first).unwrap(), "one");
+    assert_eq!(fs::read_to_string(&second).unwrap(), "two");
+    let _ = fs::remove_dir_all(&root);
+}
