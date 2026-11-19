@@ -15,4 +15,3 @@ name = "lifeline-daemon"
 path = "lifeline/daemon.rs"
 
 [dependencies]
-notify = "8"
