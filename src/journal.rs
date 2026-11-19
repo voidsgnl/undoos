@@ -52,7 +52,15 @@ pub fn append(id:u64,kind:&str,path:&str,snapshot:&str)->Result<Entry,String>{
     fs::create_dir_all(home()).map_err(|e|format!("cannot create {}: {e}",home().display()))?;
     let e=Entry{id,timestamp:now(),kind:kind.into(),path:path.into(),snapshot:snapshot.into()};
     let mut f=OpenOptions::new().create(true).append(true).open(journal_path()).map_err(|e|format!("cannot open journal: {e}"))?;
-    writeln!(f,"{}",e.to_line()).map_err(|e|format!("cannot write journal: {e}"))?; Ok(e)
+    writeln!(f,"{}",e.to_line()).map_err(|e|format!("cannot write journal: {e}"))?;
+    // Do not report a journal event as committed while it is only in cache.
+    f.sync_all().map_err(|e|format!("cannot sync journal: {e}"))?;
+    // Persist creation of journal.tsv as well as the appended record.
+    let parent = journal_path().parent().unwrap_or_else(|| std::path::Path::new("."));
+    OpenOptions::new().read(true).open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|e|format!("cannot sync journal directory: {e}"))?;
+    Ok(e)
 }
 /// Snapshot entries not currently undone (or whose undo has been redone).
 pub fn active_snapshots()->Result<Vec<Entry>,String>{
