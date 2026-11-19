@@ -98,10 +98,7 @@ fn apply_snapshot(name: &str, destination: &str) -> Result<(), String> {
 /// Reconcile the baseline association after a move. A crash can happen
 /// after rename but before metadata relocation, so either side may own it.
 fn reconcile_move_baseline(from: &Path, to: &Path) -> Result<(), String> {
-    if baseline::exists(from) {
-        if baseline::exists(to) {
-            return Err(format!("both paths have recovery baselines ({} and {}); leaving them untouched", from.display(), to.display()));
-        }
+    if baseline::exists(from) || baseline::exists(to) {
         baseline::relocate(from, to)?;
     }
     Ok(())
