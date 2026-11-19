@@ -56,7 +56,8 @@ pub fn append(id:u64,kind:&str,path:&str,snapshot:&str)->Result<Entry,String>{
     // Do not report a journal event as committed while it is only in cache.
     f.sync_all().map_err(|e|format!("cannot sync journal: {e}"))?;
     // Persist creation of journal.tsv as well as the appended record.
-    let parent = journal_path().parent().unwrap_or_else(|| std::path::Path::new("."));
+    let path = journal_path();
+    let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
     OpenOptions::new().read(true).open(parent)
         .and_then(|directory| directory.sync_all())
         .map_err(|e|format!("cannot sync journal directory: {e}"))?;
