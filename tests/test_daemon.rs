@@ -424,3 +424,104 @@ fn daemon_does_not_guess_a_move_from_matching_contents() {
 
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn interrupted_move_undo_after_rename_is_completed_on_next_command() {
+    let (root, home, watched, config) = setup("move-undo-reconcile", "");
+    let old = watched.join("old.txt");
+    let new = watched.join("new.txt");
+    fs::write(&old, "move transaction").unwrap();
+    assert!(daemon_once(&home, &config).status.success());
+    fs::rename(&old, &new).unwrap();
+    assert!(daemon_once(&home, &config).status.success());
+
+    let journal = home.join("journal.tsv");
+    let text = fs::read_to_string(&journal).unwrap();
+    let move_id: u64 = text.lines().find_map(|line| {
+        let fields: Vec<_> = line.split('\t').collect();
+        (fields.get(2) == Some(&"move")).then(|| fields[0].parse().ok()).flatten()
+    }).unwrap();
+    let next_id = text.lines().filter_map(|line| line.split('\t').next()?.parse::<u64>().ok()).max().unwrap() + 1;
+    use std::io::Write;
+    let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+    writeln!(file, "{next_id}\t1\tmove_undo_pending\t{move_id}\t").unwrap();
+    file.sync_all().unwrap();
+
+    // Simulate a crash after the filesystem rename, before baseline relocation
+    // and before the completion event.
+    fs::rename(&new, &old).unwrap();
+    let out = lifeline(&home, &["log"]);
+    assert!(out.status.success(), "reconciliation failed: {}", String::from_utf8_lossy(&out.stderr));
+    let log = stdout(&out);
+    assert!(log.contains("restored"), "{log}");
+    assert!(old.exists() && !new.exists());
+    let baseline_paths = fs::read_dir(home.join("baseline")).unwrap()
+        .filter_map(Result::ok).filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("path"))
+        .filter_map(|e| fs::read_to_string(e.path()).ok()).collect::<Vec<_>>();
+    assert!(baseline_paths.iter().any(|p| p == old.to_str().unwrap()));
+    assert!(!baseline_paths.iter().any(|p| p == new.to_str().unwrap()));
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn interrupted_move_undo_before_rename_is_aborted_safely() {
+    let (root, home, watched, config) = setup("move-undo-abort", "");
+    let old = watched.join("old.txt");
+    let new = watched.join("new.txt");
+    fs::write(&old, "move transaction").unwrap();
+    assert!(daemon_once(&home, &config).status.success());
+    fs::rename(&old, &new).unwrap();
+    assert!(daemon_once(&home, &config).status.success());
+
+    let journal = home.join("journal.tsv");
+    let text = fs::read_to_string(&journal).unwrap();
+    let move_id: u64 = text.lines().find_map(|line| {
+        let fields: Vec<_> = line.split('\t').collect();
+        (fields.get(2) == Some(&"move")).then(|| fields[0].parse().ok()).flatten()
+    }).unwrap();
+    let next_id = text.lines().filter_map(|line| line.split('\t').next()?.parse::<u64>().ok()).max().unwrap() + 1;
+    use std::io::Write;
+    let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+    writeln!(file, "{next_id}\t1\tmove_undo_pending\t{move_id}\t").unwrap();
+    file.sync_all().unwrap();
+
+    let out = lifeline(&home, &["log"]);
+    assert!(out.status.success(), "reconciliation failed: {}", String::from_utf8_lossy(&out.stderr));
+    let log = stdout(&out);
+    assert!(log.contains("move_undo_abort"), "{log}");
+    assert!(new.exists() && !old.exists());
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn interrupted_move_redo_after_rename_is_completed_on_next_command() {
+    let (root, home, watched, config) = setup("move-redo-reconcile", "");
+    let old = watched.join("old.txt");
+    let new = watched.join("new.txt");
+    fs::write(&old, "move redo transaction").unwrap();
+    assert!(daemon_once(&home, &config).status.success());
+    fs::rename(&old, &new).unwrap();
+    assert!(daemon_once(&home, &config).status.success());
+    let undone = lifeline(&home, &["undo"]);
+    assert!(undone.status.success(), "undo failed: {}", String::from_utf8_lossy(&undone.stderr));
+
+    let journal = home.join("journal.tsv");
+    let text = fs::read_to_string(&journal).unwrap();
+    let restore_id: u64 = text.lines().find_map(|line| {
+        let fields: Vec<_> = line.split('\t').collect();
+        (fields.get(2) == Some(&"restore")).then(|| fields[0].parse().ok()).flatten()
+    }).unwrap();
+    let next_id = text.lines().filter_map(|line| line.split('\t').next()?.parse::<u64>().ok()).max().unwrap() + 1;
+    use std::io::Write;
+    let mut file = fs::OpenOptions::new().append(true).open(&journal).unwrap();
+    writeln!(file, "{next_id}\t1\tmove_redo_pending\t{restore_id}\t").unwrap();
+    file.sync_all().unwrap();
+
+    // Simulate a crash after moving to the destination but before metadata update.
+    fs::rename(&old, &new).unwrap();
+    let out = lifeline(&home, &["log"]);
+    assert!(out.status.success(), "reconciliation failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(new.exists() && !old.exists());
+    assert!(stdout(&out).contains("redone"));
+    let _ = fs::remove_dir_all(&root);
+}
