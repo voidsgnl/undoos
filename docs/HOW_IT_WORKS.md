@@ -47,7 +47,9 @@ To rewind to entry `N`, Lifeline selects saved entries newer than `N` that are c
 ## Safety notes and limitations
 
 - Snapshots are full copies, so they use real disk space. Deduplication or deltas are planned.
-- Recovery currently operates on regular files; it does not yet reverse package installs, system settings, directories, permissions, or remote actions.
+- Baseline and snapshot files are staged in temporary files and renamed into place, reducing the chance that an interrupted write leaves a partial recovery copy. Baseline reads are retried if the source changes while being copied.
+- Every distinct version the watcher observes can now become a recovery point; the legacy `min_gap_s` setting is ignored. Very short-lived intermediate writes that occur entirely between observations cannot be recovered.
+- Recovery currently operates on regular files; it does not yet reverse package installs, system settings, directory moves, permissions, or remote actions. A rename is currently treated as the old path disappearing and the new path appearing, not as one atomic move operation.
 - The journal is append-only through normal CLI recovery flows. It is not yet tamper-evident or protected against manual edits or disk failure.
 - Recovery copies are retained; automatic retention and garbage collection are not implemented.
 - Restores currently use file copies and are not a fully transactional filesystem operation. A power loss during a restore can still require manual inspection.
