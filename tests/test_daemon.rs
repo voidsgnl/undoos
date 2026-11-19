@@ -177,3 +177,53 @@ fn daemon_does_not_report_a_missing_subtree_as_deleted_when_it_cannot_be_read() 
     assert!(file.exists());
     let _ = fs::remove_dir_all(&root);
 }
+
+
+#[test]
+fn daemon_reacts_to_filesystem_events_without_waiting_for_poll_interval() {
+    use std::process::Stdio;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    let (root, home, watched, config) = setup("daemon-events", "");
+    // A ten-second reconciliation interval makes this test prove that the
+    // native event path, rather than polling, notices the edit.
+    let config_text = fs::read_to_string(&config).unwrap().replace(
+        "settle_ms = 0",
+        "poll_ms = 10000\\nsettle_ms = 0",
+    );
+    fs::write(&config, config_text).unwrap();
+
+    let file = watched.join("event.txt");
+    fs::write(&file, "before").unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_lifeline-daemon"))
+        .args(["--config", config.to_str().unwrap()])
+        .env("LIFELINE_HOME", &home)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to start event-driven daemon");
+
+    // Give the daemon time to register its watch and take the initial scan.
+    thread::sleep(Duration::from_millis(500));
+    fs::write(&file, "after").unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(4);
+    let mut restored = false;
+    while Instant::now() < deadline {
+        let out = lifeline(&home, &["undo"]);
+        if out.status.success() {
+            restored = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+
+    assert!(restored, "event-driven watcher did not save the old version before the 10-second fallback scan");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "before");
+    let _ = fs::remove_dir_all(&root);
+}
