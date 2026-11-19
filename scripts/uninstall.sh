@@ -4,6 +4,12 @@ set -eu
 
 PREFIX="${PREFIX:-$HOME/.local}"
 
+if [ "$PREFIX" = "$HOME/.local" ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl --user disable --now lifeline-daemon.service >/dev/null 2>&1 || true
+    rm -f "$HOME/.config/systemd/user/lifeline-daemon.service"
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+fi
+
 rm -f "$PREFIX/bin/lifeline" "$PREFIX/bin/lifeline-daemon"
 echo "Removed lifeline from $PREFIX/bin"
 
