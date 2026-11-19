@@ -10,8 +10,8 @@ paths = ["~/Documents"]
 poll_ms = 2000
 # Wait until a file has been quiet this long before saving it (milliseconds)
 settle_ms = 1000
-# Save at most one version of each file per this many seconds
-min_gap_s = 10
+# Legacy option retained for compatibility with older configs.
+# Distinct observed file versions are no longer rate-limited.
 
 [ignore]
 # File or folder names not worth remembering (* works at the start or end)
