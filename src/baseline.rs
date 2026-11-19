@@ -6,7 +6,7 @@
 //! moved onto the shelf as an undo point and replaced with the new contents.
 //!
 //! Each baseline is `<home>/baseline/<hash>` plus a `<hash>.path` note that
-//! records which file it belongs to.
+//! records which file it belongs to and a `<hash>.id` note with Linux file identity.
 
 use std::fs::{self, File, OpenOptions};
 use std::io;
