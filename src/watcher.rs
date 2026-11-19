@@ -115,13 +115,20 @@ impl Watcher {
     pub fn scan(&mut self) -> Vec<Event> {
         let mut events = Vec::new();
         let mut seen = HashSet::new();
-        // If any subtree could not be inspected, absence inside it is unknown,
-        // not proof of deletion. This prevents permission errors from creating
-        // false recovery events for files that are still present.
+        let mut found = Vec::new();
         let mut incomplete = HashSet::new();
         let roots = self.roots.clone();
         for root in &roots {
-            self.walk(root, &mut seen, &mut incomplete, &mut events);
+            self.walk(root, &mut seen, &mut found, &mut incomplete, &mut events);
+        }
+        self.detect_moves(&seen, &found, &mut events);
+        for path in found {
+            match fs::symlink_metadata(&path) {
+                Ok(meta) => if let Err(err) = self.check_file(&path, &meta, &mut events) {
+                    events.push(Event::error(&path, &err));
+                },
+                Err(err) => events.push(Event::error(&path, &format!("cannot inspect entry: {err}"))),
+            }
         }
         self.find_deleted(&seen, &incomplete, &mut events);
         events
@@ -131,6 +138,7 @@ impl Watcher {
         &mut self,
         dir: &Path,
         seen: &mut HashSet<PathBuf>,
+        found: &mut Vec<PathBuf>,
         incomplete: &mut HashSet<PathBuf>,
         events: &mut Vec<Event>,
     ) {
@@ -171,14 +179,50 @@ impl Watcher {
                 }
             };
             if meta.is_dir() {
-                self.walk(&path, seen, incomplete, events);
+                self.walk(&path, seen, found, incomplete, events);
             } else if meta.is_file() && meta.len() <= self.max_bytes {
                 seen.insert(path.clone());
-                if let Err(err) = self.check_file(&path, &meta, events) {
-                    events.push(Event::error(&path, &err));
-                }
+                found.push(path);
             }
         }
+    }
+
+    /// Recognize a move only when the kernel reports identical device/inode.
+    fn detect_moves(&mut self, seen: &HashSet<PathBuf>, found: &[PathBuf], events: &mut Vec<Event>) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let mut destinations = HashMap::<(u64, u64), PathBuf>::new();
+            for path in found {
+                if baseline::exists(path) { continue; }
+                if let Ok(meta) = fs::symlink_metadata(path) {
+                    destinations.insert((meta.dev(), meta.ino()), path.clone());
+                }
+            }
+            let old_paths: Vec<PathBuf> = self.cache.keys()
+                .filter(|path| !seen.contains(*path) && baseline::exists(path))
+                .cloned().collect();
+            for old in old_paths {
+                let stamp = match self.cache.get(&old) { Some(s) => *s, None => continue };
+                let new = match destinations.remove(&(stamp.device, stamp.inode)) { Some(p) => p, None => continue };
+                let (old_text, new_text) = match (old.to_str(), new.to_str()) { (Some(a), Some(b)) => (a,b), _ => continue };
+                if let Err(err) = baseline::relocate(&old, &new) {
+                    events.push(Event::error(&new, &err)); continue;
+                }
+                let id = match journal::next_id() {
+                    Ok(id) => id,
+                    Err(err) => { events.push(Event::error(&new, &err)); continue; }
+                };
+                if let Err(err) = journal::append(id, "move", old_text, new_text) {
+                    events.push(Event::error(&new, &err)); continue;
+                }
+                self.cache.remove(&old);
+                if let Ok(meta) = fs::symlink_metadata(&new) { self.cache.insert(new.clone(), file_stamp(&meta)); }
+                events.push(Event { kind: "moved", text: format!("{} -> {}", old.display(), new.display()) });
+            }
+        }
+        #[cfg(not(unix))]
+        { let _ = (seen, found, events); }
     }
 
     fn check_file(
