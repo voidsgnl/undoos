@@ -42,6 +42,23 @@ fn sidecar_for(path: &Path) -> PathBuf {
     dir().join(format!("{}.path", stem(path)))
 }
 
+fn identity_for(path: &Path) -> PathBuf {
+    dir().join(format!("{}.id", stem(path)))
+}
+
+/// Read the last observed Linux device/inode identity for a tracked path.
+#[cfg(unix)]
+pub fn identity(path: &Path) -> Option<(u64, u64)> {
+    let text = fs::read_to_string(identity_for(path)).ok()?;
+    let (device, inode) = text.trim().split_once(':')?;
+    Some((device.parse().ok()?, inode.parse().ok()?))
+}
+
+#[cfg(not(unix))]
+pub fn identity(_path: &Path) -> Option<(u64, u64)> {
+    None
+}
+
 pub fn exists(path: &Path) -> bool {
     file_for(path).exists()
 }
@@ -55,6 +72,15 @@ pub fn store(path: &Path) -> Result<(), String> {
     let note = sidecar_for(path);
     atomic_write(&note, path.to_string_lossy().as_bytes())
         .map_err(|e| format!("cannot write baseline note: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let meta = fs::metadata(path)
+            .map_err(|e| format!("cannot inspect {} for identity: {e}", path.display()))?;
+        let identity = format!("{}:{}", meta.dev(), meta.ino());
+        atomic_write(&identity_for(path), identity.as_bytes())
+            .map_err(|e| format!("cannot write baseline identity: {e}"))?;
+    }
     Ok(())
 }
 
@@ -125,6 +151,7 @@ fn atomic_write(destination: &Path, contents: &[u8]) -> io::Result<()> {
 pub fn forget(path: &Path) {
     let _ = fs::remove_file(file_for(path));
     let _ = fs::remove_file(sidecar_for(path));
+    let _ = fs::remove_file(identity_for(path));
 }
 
 /// True if the file on disk is byte-for-byte the same as its baseline.
@@ -167,12 +194,23 @@ pub fn relocate(old: &Path, new: &Path) -> Result<(), String> {
     let new_file = file_for(new);
     let old_note = sidecar_for(old);
     let new_note = sidecar_for(new);
+    let old_identity = identity_for(old);
+    let new_identity = identity_for(new);
+    let saved_identity = fs::read(&old_identity).ok();
     fs::rename(&old_file, &new_file)
         .map_err(|e| format!("cannot relocate baseline for {}: {e}", old.display()))?;
     if let Err(e) = atomic_write(&new_note, new.to_string_lossy().as_bytes()) {
         let _ = fs::rename(&new_file, &old_file);
         return Err(format!("cannot update baseline path note: {e}"));
     }
+    if let Some(identity) = saved_identity {
+        if let Err(e) = atomic_write(&new_identity, &identity) {
+            let _ = fs::rename(&new_file, &old_file);
+            let _ = fs::remove_file(&new_note);
+            return Err(format!("cannot relocate baseline identity: {e}"));
+        }
+    }
     let _ = fs::remove_file(old_note);
+    let _ = fs::remove_file(old_identity);
     Ok(())
 }
