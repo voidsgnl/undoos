@@ -45,11 +45,6 @@ pub fn read_all()->Result<Vec<Entry>,String> {
     let t=fs::read_to_string(&p).map_err(|e|format!("cannot read journal: {e}"))?;
     Ok(t.lines().filter_map(Entry::from_line).collect())
 }
-pub fn write_all(entries:&[Entry])->Result<(),String> {
-    fs::create_dir_all(home()).map_err(|e|format!("cannot create {}: {e}",home().display()))?;
-    let mut out=String::new(); for e in entries {out.push_str(&e.to_line());out.push('\n');}
-    fs::write(journal_path(),out).map_err(|e|format!("cannot write journal: {e}"))
-}
 pub fn next_id()->Result<u64,String>{Ok(read_all()?.iter().map(|e|e.id).max().unwrap_or(0)+1)}
 pub fn append(id:u64,kind:&str,path:&str,snapshot:&str)->Result<Entry,String>{
     if path.contains('\t')||path.contains('\n'){return Err("paths and names cannot contain tabs or newlines".into());}
