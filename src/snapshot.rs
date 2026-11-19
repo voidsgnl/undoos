@@ -25,6 +25,7 @@ pub fn store(id: u64, src: &Path) -> Result<String, String> {
     let result = (|| -> io::Result<()> {
         let mut input = fs::File::open(src)?;
         let before = input.metadata()?;
+        let permissions = before.permissions();
         let mut output = OpenOptions::new().write(true).create_new(true).open(&temporary)?;
         io::copy(&mut input, &mut output)?;
         let after = fs::metadata(src)?;
@@ -32,6 +33,7 @@ pub fn store(id: u64, src: &Path) -> Result<String, String> {
         if !same_source_version(&before, &after) || !same_source_version(&before, &opened_after) {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "source changed while being snapshotted"));
         }
+        fs::set_permissions(&temporary, permissions)?;
         output.sync_all()?;
         fs::rename(&temporary, &destination)?;
         // Persist the snapshot's directory entry, not just its contents.
