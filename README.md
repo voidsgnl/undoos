@@ -1,6 +1,6 @@
 # UndoOS
 
-> **`lifeline undo`** — That's it. That's the whole backup strategy.
+> **`lifeline undo`** — That's it. That's the whole recovery strategy.
 
 Lifeline for your Linux PC. A system-wide undo button that remembers your files, so you can rewind a mistake in one command.
 
@@ -11,23 +11,25 @@ $ lifeline undo                   # Hold on. Restore /home/you/thesis.odt? [y/N]
 Restored /home/you/thesis.odt
 ```
 
-## Status: early scaffold
+## Status: early development
 
-UndoOS is just getting started. Here is what works today and what doesn't.
+Here is what works today and what is still being built.
 
 | Feature | State |
 |---|---|
-| Snapshot a file (`lifeline snap`) | Works |
-| Undo the last change (`lifeline undo`) | Works |
+| Manual file snapshots (`lifeline snap`) | Works |
+| Undo the last saved file (`lifeline undo`) | Works |
 | Named checkpoints and rewinding (`checkpoint`, `back`, `to`) | Works |
 | Change history (`lifeline log`) | Works |
-| "Are you sure?" warnings | Works |
-| Automatic background watching (`lifeline-daemon`) | Planned |
+| Folder watcher and background daemon | Works for configured folders |
+| User-level systemd service setup during default install | Works where systemd user services are available |
 | Package installs and removals | Planned |
 | System settings and dotfiles | Planned |
 | Space-saving snapshots (dedup/deltas) | Planned |
 
-Today a snapshot is a plain copy of the file, and you take it yourself with `lifeline snap`. The background watcher that does this for you is the next big piece.
+The default configuration watches `~/Documents`. The installer creates that configuration if it does not already exist and attempts to enable the user-level background service. Existing configuration is preserved. You can change watched folders in `~/.config/lifeline/config.toml`.
+
+**Important:** snapshots are currently full file copies. Lifeline does not yet monitor every location or every kind of system change. Only regular files inside configured folders are tracked, and files above the configured size limit are skipped.
 
 ## Install
 
@@ -39,6 +41,8 @@ cd undoos
 ./scripts/install.sh
 ```
 
+The default install places binaries in `~/.local/bin`, creates a default configuration, and attempts to start `lifeline-daemon` as a user systemd service. Make sure `~/.local/bin` is on your `PATH`.
+
 See [docs/INSTALL.md](docs/INSTALL.md) for other options.
 
 ## Commands
@@ -46,7 +50,7 @@ See [docs/INSTALL.md](docs/INSTALL.md) for other options.
 | Command | What it does |
 |---|---|
 | `lifeline snap <file>` | Remember a file as it is now |
-| `lifeline log` | Show everything lifeline remembers |
+| `lifeline log` | Show everything Lifeline remembers |
 | `lifeline undo` | Put back the most recently saved file |
 | `lifeline checkpoint <name>` | Drop a named marker in the timeline |
 | `lifeline back <name>` | Rewind everything saved after that marker |
@@ -56,7 +60,7 @@ Full details and examples: [docs/COMMANDS.md](docs/COMMANDS.md).
 
 ## How it works
 
-Lifeline keeps a notebook (the *journal*) and a shelf of saved copies (*snapshots*). Undoing means reading the notebook backwards and putting copies back. See [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
+Lifeline keeps a notebook (the *journal*), a shelf of saved copies (*snapshots*), and a baseline copy of each tracked file so it can preserve the previous version when a later scan notices a change. See [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
 
 ## Contributing
 
