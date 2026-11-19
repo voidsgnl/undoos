@@ -67,7 +67,7 @@ Lifeline keeps a notebook (the *journal*), a shelf of saved copies (*snapshots*)
 
 ## Contributing
 
-Issues and pull requests are welcome. `make test` runs the test suite.
+Issues and pull requests are welcome. `make check` checks formatting, builds the release binaries, and runs the test suite locally. `make test` runs only the test suite.
 
 ## License
 
