@@ -27,6 +27,16 @@ The bundled configuration watches `~/Documents`. Edit `~/.config/lifeline/config
 
 Make sure `~/.local/bin` is on your `PATH`.
 
+## Run local checks
+
+GitHub-hosted CI is optional. To check formatting, compile the release binaries, and run the test suite on your own Linux machine:
+
+```sh
+make check
+```
+
+The same checks can be run directly with `sh scripts/check.sh` from the repository root.
+
 ## Check it works
 
 ```sh
