@@ -59,6 +59,20 @@ pub fn identity(_path: &Path) -> Option<(u64, u64)> {
     None
 }
 
+/// Add identity metadata to a baseline created by an older Lifeline version.
+#[cfg(unix)]
+pub fn record_identity(path: &Path, meta: &fs::Metadata) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    let value = format!("{}:{}", meta.dev(), meta.ino());
+    atomic_write(&identity_for(path), value.as_bytes())
+        .map_err(|e| format!("cannot save identity for {}: {e}", path.display()))
+}
+
+#[cfg(not(unix))]
+pub fn record_identity(_path: &Path, _meta: &fs::Metadata) -> Result<(), String> {
+    Ok(())
+}
+
 pub fn exists(path: &Path) -> bool {
     file_for(path).exists()
 }
