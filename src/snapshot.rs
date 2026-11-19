@@ -2,7 +2,8 @@
 //!
 //! Today a snapshot is a plain copy. Deduplication and deltas are on the roadmap.
 
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::journal;
@@ -19,8 +20,18 @@ pub fn path_for(name: &str) -> PathBuf {
 pub fn store(id: u64, src: &Path) -> Result<String, String> {
     fs::create_dir_all(dir()).map_err(|e| format!("cannot create snapshot dir: {e}"))?;
     let name = id.to_string();
-    fs::copy(src, path_for(&name))
-        .map_err(|e| format!("cannot snapshot {}: {e}", src.display()))?;
+    let destination = path_for(&name);
+    let temporary = destination.with_file_name(format!("{name}.tmp-{}", std::process::id()));
+    let result = (|| -> io::Result<()> {
+        fs::copy(src, &temporary)?;
+        let file = OpenOptions::new().read(true).open(&temporary)?;
+        file.sync_all()?;
+        fs::rename(&temporary, &destination)
+    })();
+    if let Err(err) = result {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("cannot snapshot {}: {err}", src.display()));
+    }
     Ok(name)
 }
 
