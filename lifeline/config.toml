@@ -5,7 +5,8 @@
 [watch]
 # Folders to keep an eye on. Start small: every change stores a full copy.
 paths = ["~/Documents"]
-# How often to look for changes (milliseconds)
+# Maximum time between full reconciliation scans (milliseconds).
+# Filesystem events normally trigger scans sooner.
 poll_ms = 2000
 # Wait until a file has been quiet this long before saving it (milliseconds)
 settle_ms = 1000
