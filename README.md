@@ -76,4 +76,4 @@ Issues and pull requests are welcome. `make check` checks formatting, builds the
 
 ### Renames
 
-On Linux, Lifeline persists device/inode identity with each baseline, allowing it to recognize a same-filesystem rename even when the daemon was stopped during the move. `lifeline undo` moves the file back and `lifeline redo` reapplies the move. Directory moves are tracked per file; empty directories and cross-filesystem moves are not yet modeled as single operations.
+On Linux, Lifeline persists device/inode identity plus Linux file creation time with each baseline, allowing it to recognize a same-filesystem rename even when the daemon was stopped during the move. Filesystems that do not expose creation time are not used for move inference. `lifeline undo` moves the file back and `lifeline redo` reapplies the move. Directory moves are tracked per file; empty directories and cross-filesystem moves are not yet modeled as single operations.
