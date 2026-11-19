@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::config::{name_matches, Config};
 use crate::{baseline, journal, snapshot};
@@ -51,10 +51,8 @@ pub struct Watcher {
     ignore: Vec<String>,
     max_bytes: u64,
     settle: Duration,
-    gap: Duration,
     /// (modified time, size) from the last look, so unchanged files are skipped quickly.
     cache: HashMap<PathBuf, (SystemTime, u64)>,
-    last_saved: HashMap<PathBuf, Instant>,
 }
 
 impl Watcher {
@@ -78,9 +76,7 @@ impl Watcher {
             ignore: cfg.ignore.clone(),
             max_bytes: cfg.max_file_mb.saturating_mul(1024 * 1024),
             settle: Duration::from_millis(cfg.settle_ms),
-            gap: Duration::from_secs(cfg.min_gap_s),
             cache: HashMap::new(),
-            last_saved: HashMap::new(),
         }
     }
 
@@ -190,16 +186,8 @@ impl Watcher {
             return Ok(());
         }
 
-        // Changed too soon after the last saved version? Fold it into the next one.
-        if let Some(when) = self.last_saved.get(path) {
-            if when.elapsed() < self.gap {
-                return Ok(());
-            }
-        }
-
         save_old(path)?;
         baseline::store(path)?;
-        self.last_saved.insert(path.to_path_buf(), Instant::now());
         self.cache.insert(path.to_path_buf(), stamp);
         events.push(Event::new("saved", path));
         Ok(())
@@ -238,7 +226,6 @@ impl Watcher {
                 Ok(()) => {
                     baseline::forget(&path);
                     self.cache.remove(&path);
-                    self.last_saved.remove(&path);
                     events.push(Event::new("deleted", &path));
                 }
                 Err(err) => events.push(Event::error(&path, &err)),
