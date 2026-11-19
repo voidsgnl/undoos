@@ -53,7 +53,9 @@ To rewind to entry `N`, Lifeline selects saved entries newer than `N` that are c
 - Recovery currently operates on regular files; it does not yet reverse package installs, system settings, permissions, or remote actions. Directory moves are represented as individual file moves; empty directories are not independently journaled.
 - The journal is append-only through normal CLI recovery flows. It is not yet tamper-evident or protected against manual edits or disk failure.
 - Recovery copies are retained; automatic retention and garbage collection are not implemented.
-- Restores currently use file copies and are not a fully transactional filesystem operation. A power loss during a restore can still require manual inspection.
+- File restoration is staged in a temporary file beside the destination, flushed, and installed with an atomic rename. The containing directory is synced after the rename, reducing the chance of a partial file being exposed after interruption.
+- The filesystem change and its journal completion record are still separate operations. A power loss between them can leave the file changed while the journal lacks the matching `restore`/`redo` event; automatic transaction reconciliation is not implemented yet.
+- Conflict detection against edits made after a saved event is also not implemented yet. Lifeline may still replace a newer destination version when the user confirms an undo; keep independent backups of critical data while this limitation remains.
 - Paths and checkpoint names cannot contain tabs or newlines.
 
 ## Running the tests
