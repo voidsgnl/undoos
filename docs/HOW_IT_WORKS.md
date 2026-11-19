@@ -62,3 +62,10 @@ make test
 ```
 
 Tests run the real `lifeline` binary against a temporary `LIFELINE_HOME`, so they never touch your actual data.
+
+
+## Rename and move handling
+
+On Linux, Lifeline compares device/inode identity between scans. When a previously tracked file disappears and the same inode appears at another watched path, it records a reversible `move` event and relocates the baseline association. `lifeline undo` moves it back; `lifeline redo` reapplies the move. This avoids guessing from matching names or file contents.
+
+A directory move is currently represented as one move event per tracked file inside it. Empty directories are not independently journaled. Detection requires the daemon to have observed the original file identity in its current run, and the destination must be inside a watched folder on the same filesystem. Cross-filesystem moves, moves outside watched roots, and moves made while the daemon was stopped are treated as ordinary disappearance/new-file events. Undo refuses to overwrite an existing path.
