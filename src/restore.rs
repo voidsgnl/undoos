@@ -95,11 +95,72 @@ fn apply_snapshot(name: &str, destination: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Resolve interrupted file undo/redo transactions before accepting new work.
+/// Reconcile the baseline association after a move. A crash can happen
+/// after rename but before metadata relocation, so either side may own it.
+fn reconcile_move_baseline(from: &Path, to: &Path) -> Result<(), String> {
+    if baseline::exists(from) {
+        if baseline::exists(to) {
+            return Err(format!("both paths have recovery baselines ({} and {}); leaving them untouched", from.display(), to.display()));
+        }
+        baseline::relocate(from, to)?;
+    }
+    Ok(())
+}
+
+/// Resolve interrupted file and move undo/redo transactions before accepting new work.
 /// A transaction is completed only when the live file matches the intended snapshot;
 /// it is aborted only when the original pre-operation state is still present.
 pub fn reconcile_pending() -> Result<(), String> {
     let entries = journal::read_all()?;
+
+    // Move transactions have no content copy to compare: the two possible
+    // filesystem states are identified by which side of the rename exists.
+    for pending in entries.iter().filter(|e| e.kind == "move_undo_pending" || e.kind == "move_redo_pending") {
+        let is_undo = pending.kind == "move_undo_pending";
+        let completed_kind = if is_undo { "restore" } else { "redo" };
+        let aborted_kind = if is_undo { "move_undo_abort" } else { "move_redo_abort" };
+        if entries.iter().any(|e| e.id > pending.id &&
+            (e.kind == completed_kind || e.kind == aborted_kind) && e.path == pending.path) {
+            continue;
+        }
+        let reference_id: u64 = pending.path.parse()
+            .map_err(|_| format!("invalid move transaction reference: {}", pending.path))?;
+        let original = if is_undo {
+            entries.iter().find(|e| e.kind == "move" && e.id == reference_id)
+        } else {
+            let restore = entries.iter().find(|e| e.kind == "restore" && e.id == reference_id)
+                .ok_or_else(|| format!("move redo #{} references missing restore history", pending.id))?;
+            let move_id: u64 = restore.path.parse()
+                .map_err(|_| format!("invalid original move reference: {}", restore.path))?;
+            entries.iter().find(|e| e.kind == "move" && e.id == move_id)
+        }.ok_or_else(|| format!("move transaction #{} references missing move history", pending.id))?;
+        let old = Path::new(&original.path);
+        let new = Path::new(&original.snapshot);
+        let (source, destination) = if is_undo { (new, old) } else { (old, new) };
+        let source_exists = source.exists();
+        let destination_exists = destination.exists();
+        let id = journal::next_id()?;
+
+        match (source_exists, destination_exists) {
+            (true, false) => {
+                reconcile_move_baseline(source, destination)?;
+                journal::append(id, aborted_kind, &pending.path, "")?;
+            }
+            (false, true) => {
+                reconcile_move_baseline(source, destination)?;
+                journal::append(id, completed_kind, &pending.path, "")?;
+            }
+            (true, true) => return Err(format!(
+                "unfinished move transaction #{} is ambiguous: both {} and {} exist; leaving them untouched",
+                pending.id, source.display(), destination.display()
+            )),
+            (false, false) => return Err(format!(
+                "unfinished move transaction #{} is ambiguous: neither {} nor {} exists; leaving recovery history untouched",
+                pending.id, source.display(), destination.display()
+            )),
+        }
+    }
+
     for pending in entries.iter().filter(|e| e.kind == "undo_pending" || e.kind == "redo_pending") {
         let completed_kind = if pending.kind == "undo_pending" { "restore" } else { "redo" };
         let aborted_kind = if pending.kind == "undo_pending" { "undo_abort" } else { "redo_abort" };
@@ -148,18 +209,15 @@ pub fn undo_entry(entry: &Entry) -> Result<(), String> {
         if old.exists() { return Err(format!("cannot undo move: {} already exists", old.display())); }
         if !new.exists() { return Err(format!("cannot undo move: {} is missing", new.display())); }
         ensure_move_identity(new)?;
-        let id = journal::next_id()?;
+        let intent_id = journal::next_id()?;
+        journal::append(intent_id, "move_undo_pending", &entry.id.to_string(), "")?;
         if let Some(parent) = old.parent() { fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?; }
-        fs::rename(new, old).map_err(|e| format!("cannot move {} back to {}: {e}", new.display(), old.display()))?;
-        if let Err(err) = baseline::relocate(new, old) {
-            let _ = fs::rename(old, new);
-            return Err(err);
+        if let Err(err) = fs::rename(new, old) {
+            journal::append(journal::next_id()?, "move_undo_abort", &entry.id.to_string(), "")?;
+            return Err(format!("cannot move {} back to {}: {err}", new.display(), old.display()));
         }
-        if let Err(err) = journal::append(id, "restore", &entry.id.to_string(), "") {
-            let _ = baseline::relocate(old, new);
-            let _ = fs::rename(old, new);
-            return Err(err);
-        }
+        reconcile_move_baseline(new, old)?;
+        journal::append(journal::next_id()?, "restore", &entry.id.to_string(), "")?;
         sync_parent(old)?;
         if new.parent() != old.parent() { sync_parent(new)?; }
         return Ok(());
@@ -213,17 +271,14 @@ pub fn redo_last() -> Result<Option<Entry>, String> {
         if new.exists() { return Err(format!("cannot redo move: {} already exists", new.display())); }
         if !old.exists() { return Err(format!("cannot redo move: {} is missing", old.display())); }
         ensure_move_identity(old)?;
+        journal::append(id, "move_redo_pending", &restore.id.to_string(), "")?;
         if let Some(parent) = new.parent() { fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?; }
-        fs::rename(old, new).map_err(|e| format!("cannot move {} to {}: {e}", old.display(), new.display()))?;
-        if let Err(err) = baseline::relocate(old, new) {
-            let _ = fs::rename(new, old);
-            return Err(err);
+        if let Err(err) = fs::rename(old, new) {
+            journal::append(journal::next_id()?, "move_redo_abort", &restore.id.to_string(), "")?;
+            return Err(format!("cannot move {} to {}: {err}", old.display(), new.display()));
         }
-        if let Err(err) = journal::append(id, "redo", &restore.id.to_string(), "") {
-            let _ = baseline::relocate(new, old);
-            let _ = fs::rename(new, old);
-            return Err(err);
-        }
+        reconcile_move_baseline(old, new)?;
+        journal::append(journal::next_id()?, "redo", &restore.id.to_string(), "")?;
         sync_parent(new)?;
         if old.parent() != new.parent() { sync_parent(old)?; }
         return Ok(Some(restore));
