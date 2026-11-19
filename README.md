@@ -72,3 +72,8 @@ Issues and pull requests are welcome. `make check` checks formatting, builds the
 ## License
 
 [MIT](LICENSE)
+
+
+### Renames
+
+On Linux, Lifeline can recognize a rename or same-filesystem move while the daemon is running by matching the kernel's device/inode identity. `lifeline undo` moves the file back and `lifeline redo` reapplies the move. Directory moves are tracked per file; empty directories and cross-filesystem moves are not yet modeled as single operations.
