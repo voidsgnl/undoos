@@ -158,3 +158,21 @@ pub fn list_all() -> Result<Vec<String>, String> {
     }
     Ok(paths)
 }
+
+
+/// Move a baseline's storage key when the underlying file is renamed.
+pub fn relocate(old: &Path, new: &Path) -> Result<(), String> {
+    if exists(new) { return Err(format!("a baseline already exists for {}", new.display())); }
+    let old_file = file_for(old);
+    let new_file = file_for(new);
+    let old_note = sidecar_for(old);
+    let new_note = sidecar_for(new);
+    fs::rename(&old_file, &new_file)
+        .map_err(|e| format!("cannot relocate baseline for {}: {e}", old.display()))?;
+    if let Err(e) = atomic_write(&new_note, new.to_string_lossy().as_bytes()) {
+        let _ = fs::rename(&new_file, &old_file);
+        return Err(format!("cannot update baseline path note: {e}"));
+    }
+    let _ = fs::remove_file(old_note);
+    Ok(())
+}
