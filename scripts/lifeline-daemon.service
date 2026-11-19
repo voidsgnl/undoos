@@ -1,0 +1,12 @@
+[Unit]
+Description=UndoOS lifeline daemon (saves old versions of changed files)
+
+[Service]
+ExecStart=%h/.local/bin/lifeline-daemon
+Restart=on-failure
+RestartSec=5
+# Exit code 2 means a config problem: don't retry until it is fixed.
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=default.target

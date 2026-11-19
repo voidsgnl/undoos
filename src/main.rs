@@ -1,11 +1,6 @@
 //! lifeline: the command-line face of UndoOS.
 
-mod cli;
-mod guard;
-mod journal;
-mod restore;
-mod snapshot;
-mod watcher;
+use undoos::cli;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
