@@ -9,7 +9,7 @@ test:
 	cargo test
 
 check:
-	./scripts/check.sh
+	sh ./scripts/check.sh
 
 install: build
 	install -Dm755 target/release/lifeline $(DESTDIR)$(PREFIX)/bin/lifeline
