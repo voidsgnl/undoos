@@ -46,10 +46,10 @@ fn identity_for(path: &Path) -> PathBuf {
     dir().join(format!("{}.id", stem(path)))
 }
 
-/// Stable Linux identity: device, inode, and creation time (statx btime).
+/// Live Linux identity: device, inode, and creation time (statx btime).
 /// Creation time does not change on rename, unlike ctime.
 #[cfg(target_os = "linux")]
-pub fn identity(path: &Path) -> Option<(u64, u64, i64, u32)> {
+pub fn live_identity(path: &Path) -> Option<(u64, u64, i64, u32)> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::MetadataExt;
@@ -58,38 +58,35 @@ pub fn identity(path: &Path) -> Option<(u64, u64, i64, u32)> {
     let name = CString::new(path.as_os_str().as_bytes()).ok()?;
     let mut stat: libc::statx = unsafe { std::mem::zeroed() };
     let result = unsafe {
-        libc::statx(
-            libc::AT_FDCWD,
-            name.as_ptr(),
-            libc::AT_SYMLINK_NOFOLLOW,
-            libc::STATX_BTIME,
-            &mut stat,
-        )
+        libc::statx(libc::AT_FDCWD, name.as_ptr(), libc::AT_SYMLINK_NOFOLLOW,
+            libc::STATX_BTIME, &mut stat)
     };
-    if result != 0 || stat.stx_mask & libc::STATX_BTIME == 0 {
-        return None;
-    }
+    if result != 0 || stat.stx_mask & libc::STATX_BTIME == 0 { return None; }
     Some((meta.dev(), meta.ino(), stat.stx_btime.tv_sec, stat.stx_btime.tv_nsec))
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn identity(_path: &Path) -> Option<(u64, u64, i64, u32)> {
-    None
+pub fn live_identity(_path: &Path) -> Option<(u64, u64, i64, u32)> { None }
+
+/// Read the identity recorded when this baseline was last refreshed.
+pub fn identity(path: &Path) -> Option<(u64, u64, i64, u32)> {
+    let text = fs::read_to_string(identity_for(path)).ok()?;
+    let mut parts = text.trim().split(':');
+    Some((
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    ))
 }
 
 /// Add identity metadata to a baseline created by an older Lifeline version.
-#[cfg(target_os = "linux")]
 pub fn record_identity(path: &Path, _meta: &fs::Metadata) -> Result<(), String> {
-    if let Some((device, inode, birth_sec, birth_nsec)) = identity(path) {
+    if let Some((device, inode, birth_sec, birth_nsec)) = live_identity(path) {
         let value = format!("{device}:{inode}:{birth_sec}:{birth_nsec}");
         atomic_write(&identity_for(path), value.as_bytes())
             .map_err(|e| format!("cannot save identity for {}: {e}", path.display()))?;
     }
-    Ok(())
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn record_identity(_path: &Path, _meta: &fs::Metadata) -> Result<(), String> {
     Ok(())
 }
 
@@ -104,7 +101,7 @@ pub fn store(path: &Path) -> Result<(), String> {
         .map_err(|e| format!("cannot write baseline note: {e}"))?;
     #[cfg(target_os = "linux")]
     {
-        if let Some((device, inode, birth_sec, birth_nsec)) = identity(path) {
+        if let Some((device, inode, birth_sec, birth_nsec)) = live_identity(path) {
             let value = format!("{device}:{inode}:{birth_sec}:{birth_nsec}");
             atomic_write(&identity_for(path), value.as_bytes())
                 .map_err(|e| format!("cannot write baseline identity: {e}"))?;
