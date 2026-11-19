@@ -95,6 +95,51 @@ fn apply_snapshot(name: &str, destination: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Resolve interrupted file undo/redo transactions before accepting new work.
+/// A transaction is completed only when the live file matches the intended snapshot;
+/// it is aborted only when the original pre-operation state is still present.
+pub fn reconcile_pending() -> Result<(), String> {
+    let entries = journal::read_all()?;
+    for pending in entries.iter().filter(|e| e.kind == "undo_pending" || e.kind == "redo_pending") {
+        let completed_kind = if pending.kind == "undo_pending" { "restore" } else { "redo" };
+        let aborted_kind = if pending.kind == "undo_pending" { "undo_abort" } else { "redo_abort" };
+        let already_resolved = entries.iter().any(|e|
+            (e.kind == completed_kind || e.kind == aborted_kind) && e.path == pending.path
+        );
+        if already_resolved { continue; }
+
+        let reference_id: u64 = pending.path.parse()
+            .map_err(|_| format!("invalid recovery transaction reference: {}", pending.path))?;
+        let referenced = if pending.kind == "undo_pending" {
+            entries.iter().find(|e| e.kind == "snap" && e.id == reference_id)
+        } else {
+            entries.iter().find(|e| e.kind == "restore" && e.id == reference_id)
+        }.ok_or_else(|| format!("recovery transaction #{} references missing history", pending.id))?;
+        let destination = if pending.kind == "undo_pending" {
+            referenced.path.clone()
+        } else {
+            entries.iter().find(|e| e.kind == "snap" && e.id.to_string() == referenced.path)
+                .ok_or_else(|| format!("original entry #{} is missing", referenced.path))?.path.clone()
+        };
+        let intended = referenced.snapshot.as_str();
+        let live = Path::new(&destination);
+        let id = journal::next_id()?;
+
+        if snapshot::matches(intended, live)? {
+            if baseline::exists(live) && live.is_file() { baseline::store(live)?; }
+            journal::append(id, completed_kind, &pending.path, &pending.snapshot)?;
+        } else if snapshot::matches(&pending.snapshot, live)? {
+            journal::append(id, aborted_kind, &pending.path, "")?;
+        } else {
+            return Err(format!(
+                "unfinished recovery transaction #{} needs attention: {} matches neither its saved target nor its pre-recovery copy; leaving it untouched",
+                pending.id, destination
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Restore a saved file and append a record of the state replaced.
 pub fn undo_entry(entry: &Entry) -> Result<(), String> {
     if entry.kind == "move" {
@@ -125,26 +170,22 @@ pub fn undo_entry(entry: &Entry) -> Result<(), String> {
     let had_baseline = ensure_no_conflict(dest)?;
     let id = journal::next_id()?;
     let backup = if dest.is_file() { snapshot::store(id, dest)? } else { String::new() };
+    journal::append(id + 1, "undo_pending", &entry.id.to_string(), &backup)?;
     if let Err(err) = apply_snapshot(&entry.snapshot, &entry.path) {
-        // apply_snapshot can fail after rename if the directory sync fails.
-        // Restore the pre-operation contents before reporting failure.
-        let _ = apply_snapshot(&backup, &entry.path);
-        if !backup.is_empty() { snapshot::remove(&backup); }
+        // If the original state is still present, record a clean abort. If the
+        // atomic rename happened, leave the intent for startup reconciliation.
+        if snapshot::matches(&backup, dest).unwrap_or(false) {
+            let _ = journal::append(journal::next_id()?, "undo_abort", &entry.id.to_string(), "");
+        } else if let Ok(true) = snapshot::matches(&entry.snapshot, dest) {
+            if had_baseline && dest.is_file() { let _ = baseline::store(dest); }
+            let _ = journal::append(journal::next_id()?, "restore", &entry.id.to_string(), &backup);
+        }
         return Err(err);
     }
     if had_baseline {
-        if let Err(err) = baseline::store(dest) {
-            let _ = apply_snapshot(&backup, &entry.path);
-            if dest.is_file() { let _ = baseline::store(dest); }
-            return Err(format!("could not update recovery baseline: {err}"));
-        }
+        baseline::store(dest).map_err(|err| format!("could not update recovery baseline; transaction will be reconciled: {err}"))?;
     }
-    if let Err(err) = journal::append(id, "restore", &entry.id.to_string(), &backup) {
-        let _ = apply_snapshot(&backup, &entry.path);
-        if had_baseline && dest.is_file() { let _ = baseline::store(dest); }
-        if !backup.is_empty() { snapshot::remove(&backup); }
-        return Err(err);
-    }
+    journal::append(journal::next_id()?, "restore", &entry.id.to_string(), &backup)?;
     Ok(())
 }
 
@@ -191,24 +232,20 @@ pub fn redo_last() -> Result<Option<Entry>, String> {
     let dest = Path::new(&original.path);
     let had_baseline = ensure_no_conflict(dest)?;
     let backup = if dest.is_file() { snapshot::store(id, dest)? } else { String::new() };
+    journal::append(id + 1, "redo_pending", &restore.id.to_string(), &backup)?;
     if let Err(err) = apply_snapshot(&restore.snapshot, &original.path) {
-        let _ = apply_snapshot(&backup, &original.path);
-        if !backup.is_empty() { snapshot::remove(&backup); }
+        if snapshot::matches(&backup, dest).unwrap_or(false) {
+            let _ = journal::append(journal::next_id()?, "redo_abort", &restore.id.to_string(), "");
+        } else if let Ok(true) = snapshot::matches(&restore.snapshot, dest) {
+            if had_baseline && dest.is_file() { let _ = baseline::store(dest); }
+            let _ = journal::append(journal::next_id()?, "redo", &restore.id.to_string(), &backup);
+        }
         return Err(err);
     }
     if had_baseline {
-        if let Err(err) = baseline::store(dest) {
-            let _ = apply_snapshot(&backup, &original.path);
-            if dest.is_file() { let _ = baseline::store(dest); }
-            return Err(format!("could not update recovery baseline: {err}"));
-        }
+        baseline::store(dest).map_err(|err| format!("could not update recovery baseline; transaction will be reconciled: {err}"))?;
     }
-    if let Err(err) = journal::append(id, "redo", &restore.id.to_string(), &backup) {
-        let _ = apply_snapshot(&backup, &original.path);
-        if had_baseline && dest.is_file() { let _ = baseline::store(dest); }
-        if !backup.is_empty() { snapshot::remove(&backup); }
-        return Err(err);
-    }
+    journal::append(journal::next_id()?, "redo", &restore.id.to_string(), &backup)?;
     Ok(Some(restore))
 }
 
