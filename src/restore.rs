@@ -75,8 +75,11 @@ fn apply_snapshot(name: &str, destination: &str) -> Result<(), String> {
     let temporary = temporary_sibling(dest);
     let result = (|| -> io::Result<()> {
         let mut input = fs::File::open(&source)?;
+        let permissions = input.metadata()?.permissions();
         let mut output = OpenOptions::new().write(true).create_new(true).open(&temporary)?;
         io::copy(&mut input, &mut output)?;
+        // Match the saved file's mode bits (including executable/read-only).
+        fs::set_permissions(&temporary, permissions)?;
         output.sync_all()?;
         fs::rename(&temporary, dest)?;
         // Persist the directory entry change as well as the file contents.
