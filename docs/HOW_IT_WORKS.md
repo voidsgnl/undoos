@@ -37,6 +37,7 @@ Kinds currently include:
 - `checkpoint`: a named timeline marker.
 - `restore`: an undo action; its path field identifies the snapshot entry it compensates.
 - `redo`: a redo action; its path field identifies the restore event it reverses.
+- `move`: a same-filesystem move; its path and snapshot fields hold the original and new paths.
 
 For a restore event, an empty snapshot field means the file did not exist immediately before the restore. This is important when undoing a deletion: redo must delete the restored file again.
 
@@ -49,7 +50,7 @@ To rewind to entry `N`, Lifeline selects saved entries newer than `N` that are c
 - Snapshots are full copies, so they use real disk space. Deduplication or deltas are planned.
 - Baseline and snapshot files are staged in temporary files and renamed into place, reducing the chance that an interrupted write leaves a partial recovery copy. Baseline reads are retried if the source changes while being copied.
 - Every distinct version the watcher observes can now become a recovery point; the legacy `min_gap_s` setting is ignored. Very short-lived intermediate writes that occur entirely between observations cannot be recovered.
-- Recovery currently operates on regular files; it does not yet reverse package installs, system settings, directory moves, permissions, or remote actions. A rename is currently treated as the old path disappearing and the new path appearing, not as one atomic move operation.
+- Recovery currently operates on regular files; it does not yet reverse package installs, system settings, permissions, or remote actions. Directory moves are represented as individual file moves; empty directories are not independently journaled.
 - The journal is append-only through normal CLI recovery flows. It is not yet tamper-evident or protected against manual edits or disk failure.
 - Recovery copies are retained; automatic retention and garbage collection are not implemented.
 - Restores currently use file copies and are not a fully transactional filesystem operation. A power loss during a restore can still require manual inspection.
@@ -66,6 +67,6 @@ Tests run the real `lifeline` binary against a temporary `LIFELINE_HOME`, so the
 
 ## Rename and move handling
 
-On Linux, Lifeline compares device/inode identity between scans. When a previously tracked file disappears and the same inode appears at another watched path, it records a reversible `move` event and relocates the baseline association. `lifeline undo` moves it back; `lifeline redo` reapplies the move. This avoids guessing from matching names or file contents.
+On Linux, Lifeline stores each tracked file's device/inode identity beside its baseline. On every scan, it can match a missing old path to a newly found path with the same identity, including on the first scan after a daemon restart. It records a reversible `move` event and relocates the baseline association. `lifeline undo` moves it back; `lifeline redo` reapplies the move. Existing baselines from older versions receive identity metadata when their original file is next scanned.
 
-A directory move is currently represented as one move event per tracked file inside it. Empty directories are not independently journaled. Detection requires the daemon to have observed the original file identity in its current run, and the destination must be inside a watched folder on the same filesystem. Cross-filesystem moves, moves outside watched roots, and moves made while the daemon was stopped are treated as ordinary disappearance/new-file events. Undo refuses to overwrite an existing path.
+A directory move is represented as one move event per tracked file inside it. Empty directories are not independently journaled. The destination must be inside a watched folder on the same filesystem. Cross-filesystem moves and moves outside watched roots are treated as ordinary disappearance/new-file events. If multiple hard links make the identity ambiguous, Lifeline does not guess. Undo refuses to overwrite an existing path.
