@@ -58,6 +58,19 @@ fn same_source_version(a: &fs::Metadata, b: &fs::Metadata) -> bool {
     { true }
 }
 
+/// Whether a live path exactly matches a saved snapshot (empty means absent).
+pub fn matches(name: &str, live: &Path) -> Result<bool, String> {
+    if name.is_empty() { return Ok(!live.exists()); }
+    let saved = path_for(name);
+    if !saved.is_file() || !live.is_file() { return Ok(false); }
+    let saved_meta = fs::metadata(&saved).map_err(|e| format!("cannot inspect snapshot: {e}"))?;
+    let live_meta = fs::metadata(live).map_err(|e| format!("cannot inspect {}: {e}", live.display()))?;
+    if saved_meta.len() != live_meta.len() { return Ok(false); }
+    let a = fs::read(saved).map_err(|e| format!("cannot read snapshot: {e}"))?;
+    let b = fs::read(live).map_err(|e| format!("cannot read {}: {e}", live.display()))?;
+    Ok(a == b)
+}
+
 pub fn remove(name: &str) {
     let _ = fs::remove_file(path_for(name));
 }
