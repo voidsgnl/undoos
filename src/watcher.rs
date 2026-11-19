@@ -45,14 +45,41 @@ impl fmt::Display for Event {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FileStamp {
+    modified: SystemTime,
+    size: u64,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+}
+
+fn file_stamp(meta: &fs::Metadata) -> FileStamp {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        FileStamp {
+            modified: meta.modified().unwrap_or(UNIX_EPOCH),
+            size: meta.len(),
+            device: meta.dev(),
+            inode: meta.ino(),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        FileStamp { modified: meta.modified().unwrap_or(UNIX_EPOCH), size: meta.len() }
+    }
+}
+
 pub struct Watcher {
     roots: Vec<PathBuf>,
     home: Option<PathBuf>,
     ignore: Vec<String>,
     max_bytes: u64,
     settle: Duration,
-    /// (modified time, size) from the last look, so unchanged files are skipped quickly.
-    cache: HashMap<PathBuf, (SystemTime, u64)>,
+    /// File identity and metadata from the last look, so replacements are noticed too.
+    cache: HashMap<PathBuf, FileStamp>,
 }
 
 impl Watcher {
@@ -161,7 +188,7 @@ impl Watcher {
         events: &mut Vec<Event>,
     ) -> Result<(), String> {
         let modified = meta.modified().unwrap_or(UNIX_EPOCH);
-        let stamp = (modified, meta.len());
+        let stamp = file_stamp(meta);
         if self.cache.get(path) == Some(&stamp) {
             return Ok(());
         }
