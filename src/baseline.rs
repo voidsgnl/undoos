@@ -256,5 +256,10 @@ pub fn relocate(old: &Path, new: &Path) -> Result<(), String> {
     }
     let _ = fs::remove_file(old_note);
     let _ = fs::remove_file(old_identity);
+    // Make the baseline rename and sidecar changes durable before the move
+    // transaction is allowed to append its completion event.
+    OpenOptions::new().read(true).open(dir())
+        .and_then(|directory| directory.sync_all())
+        .map_err(|e| format!("cannot sync baseline directory: {e}"))?;
     Ok(())
 }
