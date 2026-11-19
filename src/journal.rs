@@ -28,6 +28,7 @@ impl Entry {
             "checkpoint" => format!("#{:<4} {:>8}  checkpoint  {}", self.id, when, self.path),
             "restore" => format!("#{:<4} {:>8}  restored    entry #{}", self.id, when, self.path),
             "redo" => format!("#{:<4} {:>8}  redone      restore #{}", self.id, when, self.path),
+            "move" => format!("#{:<4} {:>8}  moved       {} -> {}", self.id, when, self.path, self.snapshot),
             _ => format!("#{:<4} {:>8}  {}  {}", self.id, when, self.kind, self.path),
         }
     }
@@ -65,4 +66,22 @@ pub fn pending_redo()->Result<Option<Entry>,String>{
 }
 pub fn find_checkpoint(name:&str)->Result<Option<u64>,String>{
     Ok(read_all()?.iter().rev().find(|e|e.kind=="checkpoint"&&e.path==name).map(|e|e.id))
+}
+
+
+/// Move entries which have not yet been undone (or whose undo was redone).
+pub fn active_moves() -> Result<Vec<Entry>, String> {
+    let entries = read_all()?;
+    let mut latest = std::collections::HashMap::<u64, u64>::new();
+    let mut redone = std::collections::HashSet::<u64>::new();
+    for e in &entries {
+        if e.kind == "restore" {
+            if let Ok(id) = e.path.parse() { latest.insert(id, e.id); }
+        } else if e.kind == "redo" {
+            if let Ok(id) = e.path.parse() { redone.insert(id); }
+        }
+    }
+    Ok(entries.into_iter().filter(|e| e.kind == "move" &&
+        match latest.get(&e.id) { None => true, Some(r) => redone.contains(r) }
+    ).collect())
 }
