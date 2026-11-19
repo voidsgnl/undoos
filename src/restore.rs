@@ -104,7 +104,7 @@ pub fn reconcile_pending() -> Result<(), String> {
         let completed_kind = if pending.kind == "undo_pending" { "restore" } else { "redo" };
         let aborted_kind = if pending.kind == "undo_pending" { "undo_abort" } else { "redo_abort" };
         let already_resolved = entries.iter().any(|e|
-            (e.kind == completed_kind || e.kind == aborted_kind) && e.path == pending.path
+            e.id > pending.id && (e.kind == completed_kind || e.kind == aborted_kind) && e.path == pending.path
         );
         if already_resolved { continue; }
 
