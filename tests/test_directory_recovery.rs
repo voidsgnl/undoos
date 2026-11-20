@@ -326,3 +326,45 @@ fn redo_refuses_to_remove_a_replacement_of_a_restored_directory() {
     assert!(directory.is_dir());
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn interrupted_directory_removal_before_rmdir_is_aborted_safely() {
+    let (root, home, watched, config) = setup("crash-remove-before");
+    assert_success(&daemon_once(&home, &config), "initial baseline scan");
+    let directory = watched.join("empty");
+    fs::create_dir(&directory).unwrap();
+    assert_success(&daemon_once(&home, &config), "creation scan");
+
+    let marker = root.join("paused");
+    let child = start_paused_undo(&home, "dir_undo_after_intent", &marker);
+    kill_at_pause(child, &marker);
+    assert!(directory.is_dir());
+
+    let recovered = lifeline(&home, &["log"]);
+    assert_success(&recovered, "abort interrupted directory removal");
+    assert!(String::from_utf8_lossy(&recovered.stdout).contains("dir_undo_abort"));
+    assert!(directory.is_dir());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn interrupted_directory_creation_before_rename_is_completed_safely() {
+    let (root, home, watched, config) = setup("crash-create-before");
+    assert_success(&daemon_once(&home, &config), "initial baseline scan");
+    let directory = watched.join("empty");
+    fs::create_dir(&directory).unwrap();
+    assert_success(&daemon_once(&home, &config), "creation scan");
+    fs::remove_dir(&directory).unwrap();
+    assert_success(&daemon_once(&home, &config), "deletion scan");
+
+    let marker = root.join("paused");
+    let child = start_paused_undo(&home, "dir_undo_after_intent", &marker);
+    kill_at_pause(child, &marker);
+    assert!(!directory.exists());
+
+    let recovered = lifeline(&home, &["log"]);
+    assert_success(&recovered, "complete staged directory creation");
+    assert!(String::from_utf8_lossy(&recovered.stdout).contains("dir_restore"));
+    assert!(directory.is_dir());
+    let _ = fs::remove_dir_all(root);
+}
