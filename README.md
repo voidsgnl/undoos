@@ -28,6 +28,7 @@ Redid the undo of entry #1.
 | Recovery of files inside deleted directory trees | Works |
 | Empty-directory creation/deletion history | Implemented |
 | Independent empty-directory undo/redo | Implemented |
+| Directory permission-mode detection and undo/redo | Implemented |
 | User-level systemd service setup | Works where systemd user services are available |
 | Package installs and removals | Planned |
 | System settings and dotfiles | Planned |
@@ -35,7 +36,7 @@ Redid the undo of entry #1.
 
 The default configuration watches `~/Documents`. The installer creates that configuration if it does not already exist and attempts to enable the user-level background service. Existing configuration is preserved. Change watched folders in `~/.config/lifeline/config.toml`.
 
-**Important:** snapshots are currently full file copies. Lifeline does not yet monitor every location or every kind of system change. Regular file contents and directory presence are tracked inside configured folders. Empty-directory creation and deletion can be undone and redone independently. Directory operations refuse to remove non-empty directories. Files above the configured size limit are skipped.
+**Important:** snapshots are currently full file copies. Lifeline does not yet monitor every location or every kind of system change. Regular file contents, directory presence, and directory permission modes are tracked inside configured folders. Empty-directory creation and deletion can be undone and redone independently. Directory permission changes can be undone and redone with identity and conflict checks. Directory operations refuse to remove non-empty directories. Files above the configured size limit are skipped.
 
 ## Install
 
