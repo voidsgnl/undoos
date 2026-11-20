@@ -727,7 +727,7 @@ impl Watcher {
                         Err(err) => events.push(Event::error(&path, &err)),
                     }
                 }
-                Some((known_identity, known_mode)) if known_identity != &identity => {
+                Some((known_identity, _known_mode)) if known_identity != &identity => {
                     let snapshot = format!("{identity}:{mode:04o}");
                     match journal::next_id().and_then(|id| {
                         journal::append(id, "dir_mode_baseline", text, &snapshot).map(|_| id)
