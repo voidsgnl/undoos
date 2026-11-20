@@ -289,8 +289,10 @@ fn undo_refuses_to_remove_an_unrelated_empty_directory_at_the_same_path() {
     fs::create_dir(&directory).unwrap();
     assert_success(&daemon_once(&home, &config), "creation scan");
 
-    fs::remove_dir(&directory).unwrap();
+    let held = root.join("held-original");
+    fs::rename(&directory, &held).unwrap();
     fs::create_dir(&directory).unwrap();
+    fs::remove_dir(&held).unwrap();
 
     let undo = lifeline(&home, &["undo"]);
     assert!(
@@ -311,8 +313,10 @@ fn redo_refuses_to_remove_a_replacement_of_a_restored_directory() {
     assert_success(&daemon_once(&home, &config), "deletion scan");
 
     assert_success(&lifeline(&home, &["undo"]), "restore deleted directory");
-    fs::remove_dir(&directory).unwrap();
+    let held = root.join("held-restored");
+    fs::rename(&directory, &held).unwrap();
     fs::create_dir(&directory).unwrap();
+    fs::remove_dir(&held).unwrap();
 
     let redo = lifeline(&home, &["redo"]);
     assert!(
