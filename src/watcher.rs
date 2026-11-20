@@ -550,9 +550,22 @@ impl Watcher {
                     continue;
                 }
             };
-            match journal::next_id()
-                .and_then(|id| journal::append(id, "dir_track", text, "").map(|_| id))
-            {
+            use std::os::unix::fs::MetadataExt;
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.file_type().is_dir() => metadata,
+                Ok(_) => {
+                    events.push(Event::error(&path, "directory changed type during scan"));
+                    continue;
+                }
+                Err(err) => {
+                    events.push(Event::error(&path, &format!("cannot inspect directory: {err}")));
+                    continue;
+                }
+            };
+            let identity = format!("{}:{}", metadata.dev(), metadata.ino());
+            match journal::next_id().and_then(|id| {
+                journal::append(id, "dir_track", text, &identity).map(|_| id)
+            }) {
                 Ok(_) => events.push(Event::new("dir-tracking", &path)),
                 Err(err) => events.push(Event::error(&path, &err)),
             }
