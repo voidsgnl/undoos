@@ -25,7 +25,7 @@ $ lifeline log
 
 ## `undo`
 
-Restore the most recent saved state that has not already been undone. Lifeline asks before changing the file. The original snapshot and journal entry remain in the history, and a new recovery entry is appended.
+Reverse the most recent active saved change. This can restore a saved file version, reverse a tracked file move, recreate a deleted directory, or remove a directory that Lifeline recorded being created. A directory is removed only when empty; Lifeline never recursively deletes its contents. The original history remains, and a new recovery entry is appended.
 
 ```console
 $ lifeline undo
@@ -35,7 +35,7 @@ Restored /home/you/thesis.odt. Original history kept.
 
 ## `redo`
 
-Reverse the most recent undo. This reapplies the state that existed immediately before that undo.
+Reverse the most recent undo. This reapplies the state that existed immediately before that undo, including directory creation or deletion where applicable.
 
 ```console
 $ lifeline redo
