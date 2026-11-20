@@ -79,29 +79,40 @@ pub fn run(cmd: Command) -> Result<(), String> {
             let e = journal::active_snapshots()?
                 .into_iter()
                 .chain(journal::active_moves()?.into_iter())
+                .chain(journal::active_directories()?.into_iter())
                 .max_by_key(|e| e.id);
             if let Some(e) = e {
-                let question = if e.kind == "move" {
-                    format!("Move {} back to {}?", e.snapshot, e.path)
-                } else if guard::would_overwrite(&e.path) {
-                    format!(
+                let question = match e.kind.as_str() {
+                    "move" => format!("Move {} back to {}?", e.snapshot, e.path),
+                    "dir_track" => format!(
+                        "Remove the empty directory {}? Its contents will never be removed.",
+                        e.path
+                    ),
+                    "dir_deleted" => format!("Recreate directory {}?", e.path),
+                    _ if guard::would_overwrite(&e.path) => format!(
                         "Restore {} to its saved version? The current version will be overwritten.",
                         e.path
-                    )
-                } else {
-                    format!("Restore {}?", e.path)
+                    ),
+                    _ => format!("Restore {}?", e.path),
                 };
                 if !guard::confirm(&question) {
                     println!("Cancelled. Nothing was changed.");
                 } else {
                     restore::undo_entry(&e)?;
-                    if e.kind == "move" {
-                        println!(
+                    match e.kind.as_str() {
+                        "move" => println!(
                             "Moved {} back to {}. Original history kept.",
                             e.snapshot, e.path
-                        );
-                    } else {
-                        println!("Restored {}. Original history kept.", e.path);
+                        ),
+                        "dir_track" => println!(
+                            "Removed empty directory {}. Original history kept.",
+                            e.path
+                        ),
+                        "dir_deleted" => println!(
+                            "Recreated directory {}. Original history kept.",
+                            e.path
+                        ),
+                        _ => println!("Restored {}. Original history kept.", e.path),
                     }
                 }
             } else {
@@ -156,9 +167,11 @@ fn snap(path: &str) -> Result<(), String> {
 fn rewind(id: u64) -> Result<(), String> {
     let snaps = journal::active_snapshots()?;
     let moves = journal::active_moves()?;
+    let directories = journal::active_directories()?;
     let count = snaps
         .iter()
         .chain(moves.iter())
+        .chain(directories.iter())
         .filter(|e| e.id > id)
         .count();
     if count == 0 {
