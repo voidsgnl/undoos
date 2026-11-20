@@ -71,7 +71,7 @@ This requires more than expanding the current folder list or running the existin
 
 The implementation order is:
 
-1. Establish the privileged service, authorization boundary, IPC protocol, and system-owned storage.
+1. Establish the privileged service, authorization boundary, IPC protocol, and system-owned storage. The first scaffold is now present: a root-only systemd socket, a hardened service process, peer-credential validation, and a health-check-only protocol. User-to-system authorization and recovery storage are still outstanding.
 2. Add carefully scoped system filesystem coverage with mount-boundary and virtual-filesystem exclusions.
 3. Add package-manager transaction capture and recovery.
 4. Add supported systemd service-state recovery.
