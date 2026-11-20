@@ -89,6 +89,48 @@ fn watcher_records_directory_permission_mode_changes_once() {
 }
 
 #[test]
+fn undo_and_redo_directory_permission_change() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (root, home, watched, config) = setup("directory-mode-undo-redo");
+    let directory = watched.join("permissions");
+    fs::create_dir(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_success(&daemon_once(&home, &config), "initial permission baseline scan");
+
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o750)).unwrap();
+    assert_success(&daemon_once(&home, &config), "permission change scan");
+    assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o7777, 0o750);
+
+    assert_success(&lifeline(&home, &["undo"]), "undo directory permission change");
+    assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o7777, 0o700);
+
+    assert_success(&lifeline(&home, &["redo"]), "redo directory permission change");
+    assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o7777, 0o750);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn undo_refuses_directory_permission_change_after_external_chmod() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (root, home, watched, config) = setup("directory-mode-conflict");
+    let directory = watched.join("permissions");
+    fs::create_dir(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_success(&daemon_once(&home, &config), "initial permission baseline scan");
+
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o750)).unwrap();
+    assert_success(&daemon_once(&home, &config), "permission change scan");
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let undo = lifeline(&home, &["undo"]);
+    assert!(!undo.status.success(), "undo must refuse to overwrite a newer chmod");
+    assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o7777, 0o755);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn undo_and_redo_deleted_empty_directory() {
     let (root, home, watched, config) = setup("delete-empty");
     let directory = watched.join("empty");
