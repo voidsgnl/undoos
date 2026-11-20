@@ -514,7 +514,7 @@ pub fn redo_last() -> Result<Option<Entry>, String> {
     };
     journal::append(id + 1, "redo_pending", &restore.id.to_string(), &backup)?;
     test_pause("redo_after_intent");
-    if let Err(err) = apply_snapshot(&restore.snapshot, &original.path) {
+    if let Err(err) = apply_snapshot(&restore.snapshot, &original.path, &backup) {
         if snapshot::matches(&backup, dest).unwrap_or(false) {
             let _ = journal::append(
                 journal::next_id()?,
