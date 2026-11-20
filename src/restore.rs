@@ -79,11 +79,7 @@ fn sync_parent(path: &Path) -> Result<(), String> {
 /// Install a saved version without ever exposing a partially copied destination.
 /// The temporary file is created in the same directory so rename stays atomic
 /// on the destination filesystem.
-fn apply_snapshot(
-    name: &str,
-    destination: &str,
-    expected_current: &str,
-) -> Result<(), String> {
+fn apply_snapshot(name: &str, destination: &str, expected_current: &str) -> Result<(), String> {
     // The file may have changed after the initial conflict check and backup.
     // Revalidate immediately before the destructive filesystem operation.
     let verify_current = || -> Result<(), String> {
@@ -134,7 +130,10 @@ fn apply_snapshot(
 
     if let Err(err) = prepared {
         let _ = fs::remove_file(&temporary);
-        return Err(format!("cannot prepare recovery copy for {}: {err}", destination));
+        return Err(format!(
+            "cannot prepare recovery copy for {}: {err}",
+            destination
+        ));
     }
 
     // Recheck after staging the full replacement, immediately before rename.

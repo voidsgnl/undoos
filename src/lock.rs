@@ -11,8 +11,7 @@ pub struct StateLock {
 impl StateLock {
     pub fn acquire() -> Result<StateLock, String> {
         let home = crate::journal::home();
-        fs::create_dir_all(&home)
-            .map_err(|e| format!("cannot create {}: {e}", home.display()))?;
+        fs::create_dir_all(&home).map_err(|e| format!("cannot create {}: {e}", home.display()))?;
         let path: PathBuf = home.join("lifeline.lock");
         let file = OpenOptions::new()
             .read(true)

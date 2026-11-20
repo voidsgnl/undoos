@@ -317,7 +317,10 @@ fn sigkill_move_undo_does_not_adopt_an_unrelated_replacement_file() {
     fs::write(&old, "unrelated replacement").unwrap();
 
     let recovered = lifeline(&home, &["log"]);
-    assert!(!recovered.status.success(), "reconciliation must refuse an unrelated file");
+    assert!(
+        !recovered.status.success(),
+        "reconciliation must refuse an unrelated file"
+    );
     assert_eq!(fs::read_to_string(&old).unwrap(), "unrelated replacement");
     assert!(!new.exists());
     let error = String::from_utf8_lossy(&recovered.stderr);
@@ -338,7 +341,10 @@ fn sigkill_move_redo_does_not_adopt_an_unrelated_replacement_file() {
     fs::write(&new, "unrelated replacement").unwrap();
 
     let recovered = lifeline(&home, &["log"]);
-    assert!(!recovered.status.success(), "reconciliation must refuse an unrelated file");
+    assert!(
+        !recovered.status.success(),
+        "reconciliation must refuse an unrelated file"
+    );
     assert_eq!(fs::read_to_string(&new).unwrap(), "unrelated replacement");
     assert!(!old.exists());
     let error = String::from_utf8_lossy(&recovered.stderr);
@@ -368,17 +374,30 @@ fn concurrent_edit_during_undo_preparation_is_not_overwritten() {
     let marker = root.join("paused");
     let release = root.join("continue");
     let mut child = start_paused_with_release(
-        &home, &["undo"], "apply_before_commit", &marker, Some(&release)
+        &home,
+        &["undo"],
+        "apply_before_commit",
+        &marker,
+        Some(&release),
     );
     wait_for_marker(&mut child, &marker);
     fs::write(&file, "concurrent application edit").unwrap();
     fs::write(&release, "continue").unwrap();
     let status = child.wait().expect("wait for lifeline");
     assert!(!status.success(), "undo must refuse the concurrent edit");
-    assert_eq!(fs::read_to_string(&file).unwrap(), "concurrent application edit");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "concurrent application edit"
+    );
     let recovered = lifeline(&home, &["log"]);
-    assert!(!recovered.status.success(), "unresolved conflict must remain visible");
-    assert_eq!(fs::read_to_string(&file).unwrap(), "concurrent application edit");
+    assert!(
+        !recovered.status.success(),
+        "unresolved conflict must remain visible"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "concurrent application edit"
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -388,21 +407,32 @@ fn concurrent_edit_during_redo_preparation_is_not_overwritten() {
     let marker = root.join("paused");
     let release = root.join("continue");
     let mut child = start_paused_with_release(
-        &home, &["redo"], "apply_before_commit", &marker, Some(&release)
+        &home,
+        &["redo"],
+        "apply_before_commit",
+        &marker,
+        Some(&release),
     );
     wait_for_marker(&mut child, &marker);
     fs::write(&file, "concurrent application edit").unwrap();
     fs::write(&release, "continue").unwrap();
     let status = child.wait().expect("wait for lifeline");
     assert!(!status.success(), "redo must refuse the concurrent edit");
-    assert_eq!(fs::read_to_string(&file).unwrap(), "concurrent application edit");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "concurrent application edit"
+    );
     let recovered = lifeline(&home, &["log"]);
-    assert!(!recovered.status.success(), "unresolved conflict must remain visible");
-    assert_eq!(fs::read_to_string(&file).unwrap(), "concurrent application edit");
+    assert!(
+        !recovered.status.success(),
+        "unresolved conflict must remain visible"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "concurrent application edit"
+    );
     fs::remove_dir_all(root).unwrap();
 }
-
-
 
 #[test]
 fn concurrent_cli_waits_for_recovery_transaction_lock() {
