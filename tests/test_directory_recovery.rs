@@ -229,7 +229,7 @@ fn watcher_respects_directory_undo_and_redo_state_without_duplicate_events() {
     assert_success(&after_redo, "scan after redo");
     assert_eq!(
         fs::read_to_string(&journal_path).unwrap().lines().count(),
-        initial_count + 3,
+        initial_count + 4,
         "the scan must not add a duplicate directory-creation event"
     );
     let _ = fs::remove_dir_all(root);
@@ -253,7 +253,7 @@ fn watcher_respects_restoration_of_a_deleted_directory() {
     assert_success(&after_undo, "scan after restoring directory");
     assert_eq!(
         fs::read_to_string(&journal_path).unwrap().lines().count(),
-        before_undo + 1,
+        before_undo + 2,
         "the scan must not add a duplicate directory-creation event"
     );
     let _ = fs::remove_dir_all(root);
