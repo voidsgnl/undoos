@@ -448,6 +448,50 @@ impl Watcher {
             }
         }
 
+        // A tracked file move also changes its parent-directory paths.
+        // Keep those parents as baseline state instead of creating separate
+        // directory undo events that would race with the file move itself.
+        let active_moves = match journal::active_moves() {
+            Ok(moves) => moves,
+            Err(err) => {
+                events.push(Event {
+                    kind: "error",
+                    text: err,
+                });
+                return;
+            }
+        };
+        let mut moved_directory_set = HashSet::<PathBuf>::new();
+        for movement in active_moves {
+            for file_path in [Path::new(&movement.path), Path::new(&movement.snapshot)] {
+                let mut ancestor = file_path.parent();
+                while let Some(directory) = ancestor {
+                    if self.roots.iter().any(|root| directory.starts_with(root)) {
+                        moved_directory_set.insert(directory.to_path_buf());
+                    }
+                    ancestor = directory.parent();
+                }
+            }
+        }
+        let mut moved_directories: Vec<PathBuf> =
+            moved_directory_set.iter().cloned().collect();
+        moved_directories.sort_by_key(|path| (path.components().count(), path.clone()));
+        for path in moved_directories {
+            let Some(text) = path.to_str() else {
+                continue;
+            };
+            if states.get(text) != Some(&true) {
+                match journal::next_id()
+                    .and_then(|id| journal::append(id, "dir_baseline", text, "move").map(|_| id))
+                {
+                    Ok(_) => {
+                        states.insert(text.to_string(), true);
+                    }
+                    Err(err) => events.push(Event::error(&path, &err)),
+                }
+            }
+        }
+
         // The first successful scan of each watched root establishes a
         // baseline, not a user action. Existing folders must never become
         // undo candidates merely because Lifeline was installed later.
@@ -483,8 +527,10 @@ impl Watcher {
         let mut created: Vec<PathBuf> = seen
             .iter()
             .filter(|path| {
-                path.to_str()
-                    .is_some_and(|text| states.get(text) != Some(&true))
+                !moved_directory_set.contains(*path)
+                    && path
+                        .to_str()
+                        .is_some_and(|text| states.get(text) != Some(&true))
             })
             .cloned()
             .collect();
@@ -517,6 +563,7 @@ impl Watcher {
                     && !seen.contains(&path)
                     && !path.exists()
                     && !incomplete.iter().any(|dir| path.starts_with(dir))
+                    && !moved_directory_set.contains(&path)
                     && self
                         .roots
                         .iter()
