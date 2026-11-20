@@ -169,6 +169,7 @@ fn kill_at_pause(mut child: Child, marker: &Path) {
 fn interrupted_directory_removal_is_reconciled_after_restart() {
     let (root, home, watched, config) = setup("crash-remove");
     let directory = watched.join("empty");
+    assert_success(&daemon_once(&home, &config), "initial baseline scan");
     fs::create_dir(&directory).unwrap();
     assert_success(&daemon_once(&home, &config), "creation scan");
 
