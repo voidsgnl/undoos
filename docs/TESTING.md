@@ -123,7 +123,7 @@ The automated suite includes checks for:
 - Detecting file renames, including after a daemon restart, where filesystem identity information is available.
 - Avoiding false deletion reports when a watched directory cannot be inspected.
 - Undoing and redoing empty-directory creation and deletion, including nested empty directories.
-- Refusing to remove a directory after new contents have appeared.
+- Refusing to remove a directory after new contents have appeared or when its identity no longer matches the recorded directory.\n- Keeping pre-existing watched directories as non-undoable baseline state.
 - Reconciling interrupted file, tracked-move, and directory transactions from durable journal intent.
 
 ### Real process-crash tests
