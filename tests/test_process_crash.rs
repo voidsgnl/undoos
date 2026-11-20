@@ -402,3 +402,38 @@ fn concurrent_edit_during_redo_preparation_is_not_overwritten() {
     fs::remove_dir_all(root).unwrap();
 }
 
+
+
+#[test]
+fn concurrent_cli_waits_for_recovery_transaction_lock() {
+    let (root, home, _file) = prepare_undo("state-lock-serialization");
+    let marker = root.join("paused");
+    let first = start_paused(&home, &["undo"], "undo_after_intent", &marker);
+    let mut first = first;
+    wait_for_marker(&mut first, &marker);
+
+    let mut second = Command::new(env!("CARGO_BIN_EXE_lifeline"))
+        .args(["log"])
+        .env("LIFELINE_HOME", &home)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("could not start competing Lifeline command");
+
+    thread::sleep(Duration::from_millis(150));
+    assert!(
+        second.try_wait().unwrap().is_none(),
+        "second command must wait while the first process owns the state lock"
+    );
+
+    first.kill().expect("kill first Lifeline process");
+    let first_status = first.wait().expect("wait for first Lifeline process");
+    assert!(!first_status.success());
+    let second_status = second.wait().expect("wait for second Lifeline process");
+    assert!(
+        second_status.success(),
+        "second command should acquire the released lock and reconcile: {}",
+        String::from_utf8_lossy(&second.stderr.take().unwrap().read_to_end_vec())
+    );
+    fs::remove_dir_all(root).unwrap();
+}
