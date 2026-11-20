@@ -25,6 +25,8 @@ Redid the undo of entry #1.
 | Named checkpoints and selective rewind | Works |
 | Change history (`lifeline log`) | Works |
 | Folder watcher and background daemon | Works for configured folders |
+| Recovery of files inside deleted directory trees | Works |
+| Independent empty-directory recovery | Planned |
 | User-level systemd service setup | Works where systemd user services are available |
 | Package installs and removals | Planned |
 | System settings and dotfiles | Planned |
@@ -46,7 +48,7 @@ cd undoos
 
 The default install places binaries in `~/.local/bin`, creates a default configuration, and attempts to start `lifeline-daemon` as a user systemd service. Make sure `~/.local/bin` is on your `PATH`.
 
-See [docs/INSTALL.md](docs/INSTALL.md) for installation options and [docs/TESTING.md](docs/TESTING.md) for safe local testing.
+See [docs/INSTALL.md](docs/INSTALL.md) for installation options, [docs/TESTING.md](docs/TESTING.md) for safe local testing, and [docs/ROADMAP.md](docs/ROADMAP.md) for the product direction and planned capabilities.
 
 ## Commands
 
@@ -61,6 +63,8 @@ See [docs/INSTALL.md](docs/INSTALL.md) for installation options and [docs/TESTIN
 | `lifeline to <id>` | Rewind active saved changes after entry `#id` |
 
 Full details: [docs/COMMANDS.md](docs/COMMANDS.md).
+
+The command line is the primary interface during core development. A lightweight tray application and optional full dashboard are later-stage plans, after monitoring and recovery are dependable.
 
 ## How it works
 
@@ -77,4 +81,4 @@ Issues and pull requests are welcome. `make check` checks formatting, builds the
 
 ### Renames
 
-On Linux, Lifeline persists device/inode identity plus Linux file creation time with each baseline, allowing it to recognize a same-filesystem rename even when the daemon was stopped during the move. Filesystems that do not expose creation time are not used for move inference. `lifeline undo` moves the file back and `lifeline redo` reapplies the move. Directory moves are tracked per file; empty directories and cross-filesystem moves are not yet modeled as single operations.
+On Linux, Lifeline persists device/inode identity plus Linux file creation time with each baseline, allowing it to recognize a same-filesystem rename even when the daemon was stopped during the move. Filesystems that do not expose creation time are not used for move inference. `lifeline undo` moves the file back and `lifeline redo` reapplies the move. Directory moves are currently tracked per file. Empty directories are not yet independently tracked or restored. See [the roadmap](docs/ROADMAP.md) for the next recovery milestone and longer-term direction.
