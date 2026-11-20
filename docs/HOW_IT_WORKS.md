@@ -49,7 +49,11 @@ Kinds currently include:
 - `undo_pending` / `redo_pending`: durable intents written before replacing a file.
 - `undo_abort` / `redo_abort`: records that an interrupted file operation had not changed the live file.
 - `move_undo_pending` / `move_redo_pending`: durable intents written before renaming a tracked file.
-- `move_undo_abort` / `move_redo_abort`: records that an interrupted move did not happen.\n- `dir_track` / `dir_deleted`: observed directory creation and deletion.\n- `dir_undo_pending` / `dir_redo_pending`: durable directory-operation intents. Their snapshot field stores the expected device/inode identity.\n- `dir_restore` / `dir_redo`: completed directory undo and redo events.\n- `dir_undo_abort` / `dir_redo_abort`: directory operations that did not change the target.
+- `move_undo_abort` / `move_redo_abort`: records that an interrupted move did not happen.
+- `dir_track` / `dir_deleted`: observed directory creation and deletion.
+- `dir_undo_pending` / `dir_redo_pending`: durable directory-operation intents. Their snapshot field stores the expected device/inode identity.
+- `dir_restore` / `dir_redo`: completed directory undo and redo events.
+- `dir_undo_abort` / `dir_redo_abort`: directory operations that did not change the target.
 
 For a restore event, an empty snapshot field means the file did not exist immediately before the restore. This is important when undoing a deletion: redo must delete the restored file again.
 
