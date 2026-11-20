@@ -369,6 +369,130 @@ fn redo_directory_entry(restore: &Entry) -> Result<(), String> {
 pub fn reconcile_pending() -> Result<(), String> {
     let entries = journal::read_all()?;
 
+    // Directory operations use staged sibling directories for creation. The
+    // staged directory's device/inode identity is journaled before its atomic
+    // rename, so recovery never adopts an unrelated directory at the target.
+    for pending in entries.iter().filter(|entry| {
+        entry.kind == "dir_undo_pending" || entry.kind == "dir_redo_pending"
+    }) {
+        let is_undo = pending.kind == "dir_undo_pending";
+        let completed_kind = if is_undo { "dir_restore" } else { "dir_redo" };
+        let aborted_kind = if is_undo { "dir_undo_abort" } else { "dir_redo_abort" };
+        if entries.iter().any(|entry| {
+            entry.id > pending.id
+                && (entry.kind == completed_kind || entry.kind == aborted_kind)
+                && entry.path == pending.path
+        }) {
+            continue;
+        }
+
+        let reference_id: u64 = pending.path.parse().map_err(|_| {
+            format!("invalid directory transaction reference: {}", pending.path)
+        })?;
+        let original = if is_undo {
+            entries.iter().find(|entry| {
+                (entry.kind == "dir_track" || entry.kind == "dir_deleted")
+                    && entry.id == reference_id
+            })
+        } else {
+            let restore = entries.iter().find(|entry| {
+                entry.kind == "dir_restore" && entry.id == reference_id
+            }).ok_or_else(|| format!(
+                "directory redo #{} references missing restore history",
+                pending.id
+            ))?;
+            let original_id: u64 = restore.path.parse().map_err(|_| {
+                format!("invalid original directory reference: {}", restore.path)
+            })?;
+            entries.iter().find(|entry| {
+                (entry.kind == "dir_track" || entry.kind == "dir_deleted")
+                    && entry.id == original_id
+            })
+        }.ok_or_else(|| format!(
+            "directory transaction #{} references missing directory history",
+            pending.id
+        ))?;
+
+        let creates_directory = if is_undo {
+            original.kind == "dir_deleted"
+        } else {
+            original.kind == "dir_track"
+        };
+        let destination = Path::new(&original.path);
+        let staged = staged_directory_path(destination, pending.id);
+        let live_identity = match fs::symlink_metadata(destination) {
+            Ok(metadata) if metadata.file_type().is_dir() => {
+                use std::os::unix::fs::MetadataExt;
+                Some(format!("{}:{}", metadata.dev(), metadata.ino()))
+            }
+            Ok(_) => return Err(format!(
+                "unfinished directory transaction #{} conflicts with non-directory path {}; leaving it untouched",
+                pending.id, destination.display()
+            )),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(format!(
+                "cannot inspect directory {} during recovery: {error}",
+                destination.display()
+            )),
+        };
+        let staged_identity = match fs::symlink_metadata(&staged) {
+            Ok(metadata) if metadata.file_type().is_dir() => {
+                use std::os::unix::fs::MetadataExt;
+                Some(format!("{}:{}", metadata.dev(), metadata.ino()))
+            }
+            Ok(_) => return Err(format!(
+                "temporary recovery path {} is not a directory",
+                staged.display()
+            )),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(format!(
+                "cannot inspect temporary directory {}: {error}",
+                staged.display()
+            )),
+        };
+
+        if creates_directory {
+            if live_identity.as_deref() == Some(pending.snapshot.as_str()) {
+                journal::append(journal::next_id()?, completed_kind, &pending.path, "")?;
+            } else if live_identity.is_some() {
+                return Err(format!(
+                    "unfinished directory transaction #{} found a different directory at {}; leaving it untouched",
+                    pending.id, destination.display()
+                ));
+            } else if staged_identity.as_deref() == Some(pending.snapshot.as_str()) {
+                fs::rename(&staged, destination).map_err(|error| format!(
+                    "cannot finish restoring directory {}: {error}",
+                    destination.display()
+                ))?;
+                sync_parent(destination)?;
+                journal::append(journal::next_id()?, completed_kind, &pending.path, "")?;
+            } else if staged_identity.is_none() {
+                journal::append(journal::next_id()?, aborted_kind, &pending.path, "")?;
+            } else {
+                return Err(format!(
+                    "unfinished directory transaction #{} has an unexpected staging directory {}; leaving it untouched",
+                    pending.id, staged.display()
+                ));
+            }
+        } else if live_identity.is_none() {
+            journal::append(journal::next_id()?, completed_kind, &pending.path, "")?;
+        } else if live_identity.as_deref() == Some(pending.snapshot.as_str()) {
+            if directory_is_empty(destination)? {
+                journal::append(journal::next_id()?, aborted_kind, &pending.path, "")?;
+            } else {
+                return Err(format!(
+                    "unfinished directory transaction #{} found new contents in {}; leaving them untouched",
+                    pending.id, destination.display()
+                ));
+            }
+        } else {
+            return Err(format!(
+                "unfinished directory transaction #{} found a different directory at {}; leaving it untouched",
+                pending.id, destination.display()
+            ));
+        }
+    }
+
     // Move transactions have no content copy to compare: the two possible
     // filesystem states are identified by which side of the rename exists.
     for pending in entries
@@ -526,6 +650,9 @@ pub fn reconcile_pending() -> Result<(), String> {
 
 /// Restore a saved file and append a record of the state replaced.
 pub fn undo_entry(entry: &Entry) -> Result<(), String> {
+    if entry.kind == "dir_track" || entry.kind == "dir_deleted" {
+        return undo_directory_entry(entry);
+    }
     if entry.kind == "move" {
         let old = Path::new(&entry.path);
         let new = Path::new(&entry.snapshot);
@@ -619,6 +746,7 @@ pub fn undo_last() -> Result<Option<Entry>, String> {
     let entry = match journal::active_snapshots()?
         .into_iter()
         .chain(journal::active_moves()?.into_iter())
+        .chain(journal::active_directories()?.into_iter())
         .max_by_key(|e| e.id)
     {
         Some(entry) => entry,
@@ -630,10 +758,20 @@ pub fn undo_last() -> Result<Option<Entry>, String> {
 
 /// Reapply the state which existed immediately before the latest undo.
 pub fn redo_last() -> Result<Option<Entry>, String> {
-    let restore = match journal::pending_redo()? {
-        Some(entry) => entry,
-        None => return Ok(None),
+    let file_restore = journal::pending_redo()?;
+    let directory_restore = journal::pending_directory_redo()?;
+    let restore = match (file_restore, directory_restore) {
+        (Some(file), Some(directory)) => {
+            if file.id > directory.id { file } else { directory }
+        }
+        (Some(file), None) => file,
+        (None, Some(directory)) => directory,
+        (None, None) => return Ok(None),
     };
+    if restore.kind == "dir_restore" {
+        redo_directory_entry(&restore)?;
+        return Ok(Some(restore));
+    }
     let original = journal::read_all()?
         .into_iter()
         .find(|e| (e.kind == "snap" || e.kind == "move") && e.id.to_string() == restore.path)
@@ -732,6 +870,7 @@ pub fn rewind_to(id: u64) -> Result<usize, String> {
     let mut newer: Vec<Entry> = journal::active_snapshots()?
         .into_iter()
         .chain(journal::active_moves()?.into_iter())
+        .chain(journal::active_directories()?.into_iter())
         .filter(|e| e.id > id)
         .collect();
     newer.sort_by_key(|e| std::cmp::Reverse(e.id));
