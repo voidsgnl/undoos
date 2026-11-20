@@ -304,7 +304,12 @@ fn create_directory_transaction(
     } else {
         "dir_redo_after_rename"
     });
-    journal::append(journal::next_id()?, completed_kind, &reference_id.to_string(), "")?;
+    journal::append(
+        journal::next_id()?,
+        completed_kind,
+        &reference_id.to_string(),
+        &identity,
+    )?;
     Ok(())
 }
 
@@ -313,9 +318,16 @@ fn remove_directory_transaction(
     pending_kind: &str,
     completed_kind: &str,
     reference_id: u64,
+    expected_identity: Option<&str>,
 ) -> Result<(), String> {
     let destination = Path::new(&original.path);
     let identity = directory_identity(destination)?;
+    if expected_identity.is_some_and(|expected| !expected.is_empty() && expected != identity) {
+        return Err(format!(
+            "recovery conflict: {} is not the directory Lifeline recorded; leaving it untouched",
+            destination.display()
+        ));
+    }
     if !directory_is_empty(destination)? {
         return Err(format!(
             "recovery conflict: {} is not empty; refusing to remove it or any of its contents",
@@ -358,6 +370,7 @@ fn undo_directory_entry(entry: &Entry) -> Result<(), String> {
             "dir_undo_pending",
             "dir_restore",
             entry.id,
+            Some(&entry.snapshot),
         ),
         "dir_deleted" => create_directory_transaction(
             entry,
@@ -386,12 +399,14 @@ fn redo_directory_entry(restore: &Entry) -> Result<(), String> {
             "dir_redo_pending",
             "dir_redo",
             restore.id,
+            Some(&restore.snapshot),
         ),
         "dir_deleted" => remove_directory_transaction(
             &original,
             "dir_redo_pending",
             "dir_redo",
             restore.id,
+            Some(&restore.snapshot),
         ),
         _ => Ok(()),
     }
@@ -487,7 +502,12 @@ pub fn reconcile_pending() -> Result<(), String> {
 
         if creates_directory {
             if live_identity.as_deref() == Some(pending.snapshot.as_str()) {
-                journal::append(journal::next_id()?, completed_kind, &pending.path, "")?;
+                journal::append(
+                    journal::next_id()?,
+                    completed_kind,
+                    &pending.path,
+                    &pending.snapshot,
+                )?;
             } else if live_identity.is_some() {
                 return Err(format!(
                     "unfinished directory transaction #{} found a different directory at {}; leaving it untouched",
@@ -501,7 +521,12 @@ pub fn reconcile_pending() -> Result<(), String> {
                     )
                 })?;
                 sync_parent(destination)?;
-                journal::append(journal::next_id()?, completed_kind, &pending.path, "")?;
+                journal::append(
+                    journal::next_id()?,
+                    completed_kind,
+                    &pending.path,
+                    &pending.snapshot,
+                )?;
             } else if staged_identity.is_none() {
                 journal::append(journal::next_id()?, aborted_kind, &pending.path, "")?;
             } else {
