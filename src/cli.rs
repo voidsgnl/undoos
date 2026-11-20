@@ -80,6 +80,7 @@ pub fn run(cmd: Command) -> Result<(), String> {
                 .into_iter()
                 .chain(journal::active_moves()?.into_iter())
                 .chain(journal::active_directories()?.into_iter())
+                .chain(journal::active_directory_modes()?.into_iter())
                 .max_by_key(|e| e.id);
             if let Some(e) = e {
                 let question = match e.kind.as_str() {
@@ -89,6 +90,11 @@ pub fn run(cmd: Command) -> Result<(), String> {
                         e.path
                     ),
                     "dir_deleted" => format!("Recreate directory {}?", e.path),
+                    "dir_mode" => {
+                        let new_mode = e.snapshot.rsplit(':').next().unwrap_or("unknown");
+                        let old_mode = e.snapshot.rsplitn(2, ':').nth(1).unwrap_or("unknown");
+                        format!("Restore permissions on {} from {} to {}?", e.path, new_mode, old_mode)
+                    }
                     _ if guard::would_overwrite(&e.path) => format!(
                         "Restore {} to its saved version? The current version will be overwritten.",
                         e.path
@@ -110,6 +116,10 @@ pub fn run(cmd: Command) -> Result<(), String> {
                         ),
                         "dir_deleted" => println!(
                             "Recreated directory {}. Original history kept.",
+                            e.path
+                        ),
+                        "dir_mode" => println!(
+                            "Restored directory permissions on {}. Original history kept.",
                             e.path
                         ),
                         _ => println!("Restored {}. Original history kept.", e.path),
@@ -172,6 +182,7 @@ fn rewind(id: u64) -> Result<(), String> {
         .iter()
         .chain(moves.iter())
         .chain(directories.iter())
+        .chain(journal::active_directory_modes()?.iter())
         .filter(|e| e.id > id)
         .count();
     if count == 0 {
