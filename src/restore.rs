@@ -10,6 +10,24 @@ use crate::{baseline, journal};
 
 static RESTORE_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
+/// Test-only synchronization point used by integration tests to send SIGKILL
+/// at a real transaction boundary. It is inert in release builds.
+fn test_pause(point: &str) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    if std::env::var("LIFELINE_TEST_PAUSE_AT").as_deref() != Ok(point) {
+        return;
+    }
+    if let Ok(marker) = std::env::var("LIFELINE_TEST_PAUSE_MARKER") {
+        let _ = fs::write(marker, point);
+    }
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(60));
+    }
+}
+
+
 fn temporary_sibling(destination: &Path) -> PathBuf {
     let id = RESTORE_TEMP_ID.fetch_add(1, Ordering::Relaxed);
     let mut name = destination.file_name().unwrap_or_default().to_os_string();
@@ -323,6 +341,7 @@ pub fn undo_entry(entry: &Entry) -> Result<(), String> {
         String::new()
     };
     journal::append(id + 1, "undo_pending", &entry.id.to_string(), &backup)?;
+    test_pause("undo_after_intent");
     if let Err(err) = apply_snapshot(&entry.snapshot, &entry.path) {
         // If the original state is still present, record a clean abort. If the
         // atomic rename happened, leave the intent for startup reconciliation.
@@ -341,6 +360,7 @@ pub fn undo_entry(entry: &Entry) -> Result<(), String> {
         }
         return Err(err);
     }
+    test_pause("undo_after_apply");
     if had_baseline {
         baseline::store(dest).map_err(|err| {
             format!("could not update recovery baseline; transaction will be reconciled: {err}")
@@ -428,6 +448,7 @@ pub fn redo_last() -> Result<Option<Entry>, String> {
         String::new()
     };
     journal::append(id + 1, "redo_pending", &restore.id.to_string(), &backup)?;
+    test_pause("redo_after_intent");
     if let Err(err) = apply_snapshot(&restore.snapshot, &original.path) {
         if snapshot::matches(&backup, dest).unwrap_or(false) {
             let _ = journal::append(
@@ -449,6 +470,7 @@ pub fn redo_last() -> Result<Option<Entry>, String> {
         }
         return Err(err);
     }
+    test_pause("redo_after_apply");
     if had_baseline {
         baseline::store(dest).map_err(|err| {
             format!("could not update recovery baseline; transaction will be reconciled: {err}")
