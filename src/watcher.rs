@@ -409,13 +409,38 @@ impl Watcher {
         };
 
         let mut states = HashMap::<String, bool>::new();
-        for entry in entries {
+        let mut directory_events = HashMap::<u64, (String, String)>::new();
+        for entry in &entries {
             match entry.kind.as_str() {
                 "dir_track" => {
-                    states.insert(entry.path, true);
+                    states.insert(entry.path.clone(), true);
+                    directory_events.insert(entry.id, (entry.path.clone(), entry.kind.clone()));
                 }
                 "dir_deleted" => {
-                    states.insert(entry.path, false);
+                    states.insert(entry.path.clone(), false);
+                    directory_events.insert(entry.id, (entry.path.clone(), entry.kind.clone()));
+                }
+                "dir_restore" => {
+                    if let Ok(original_id) = entry.path.parse::<u64>() {
+                        if let Some((path, original_kind)) = directory_events.get(&original_id) {
+                            states.insert(path.clone(), original_kind == "dir_deleted");
+                        }
+                    }
+                }
+                "dir_redo" => {
+                    if let Ok(restore_id) = entry.path.parse::<u64>() {
+                        if let Some(restore) = entries.iter().find(|candidate| {
+                            candidate.kind == "dir_restore" && candidate.id == restore_id
+                        }) {
+                            if let Ok(original_id) = restore.path.parse::<u64>() {
+                                if let Some((path, original_kind)) =
+                                    directory_events.get(&original_id)
+                                {
+                                    states.insert(path.clone(), original_kind == "dir_track");
+                                }
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }
