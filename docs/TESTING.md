@@ -124,9 +124,15 @@ The automated suite includes checks for:
 - Avoiding false deletion reports when a watched directory cannot be inspected.
 - Reconciling interrupted file and tracked-move transactions from their durable journal intent.
 
-### Important distinction about crash testing
+### Real process-crash tests
 
-The current interrupted-transaction tests construct the journal and filesystem states that would remain after an interruption, then start Lifeline and verify reconciliation. They test the recovery decisions, but they do **not yet kill a real Lifeline process with SIGKILL at each transaction boundary**. A dedicated process-termination harness is still needed for that stronger test.
+The `test_process_crash` integration test starts real Lifeline child processes, waits until they reach explicit transaction boundaries, kills them, then starts a fresh Lifeline process to verify recovery. Run it directly with:
+
+```sh
+cargo test --test test_process_crash -- --nocapture
+```
+
+It covers SIGKILL after the durable intent and after the filesystem operation for file undo/redo and tracked-move undo/redo. These are genuine process-termination tests, not simulated journal states. The pause hooks are inert in release builds. They do not simulate sudden power loss, storage-controller failure, or every filesystem-specific durability behavior; those require separate testing on real filesystems and hardware.
 
 Directory moves are currently tracked as individual moves for files inside the directory. Empty directories are not independently journaled, and directory-wide recovery is not yet one atomic transaction. Do not use Lifeline as the only copy of important data.
 
