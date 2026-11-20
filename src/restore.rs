@@ -365,7 +365,11 @@ fn remove_directory_transaction(
     if let Err(error) = fs::remove_dir(destination) {
         journal::append(
             journal::next_id()?,
-            if pending_kind == "dir_undo_pending" { "dir_undo_abort" } else { "dir_redo_abort" },
+            if pending_kind == "dir_undo_pending" {
+                "dir_undo_abort"
+            } else {
+                "dir_redo_abort"
+            },
             &reference_id.to_string(),
             "",
         )?;
