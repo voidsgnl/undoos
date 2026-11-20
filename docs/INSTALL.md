@@ -1,14 +1,21 @@
 # Installing UndoOS
 
-UndoOS is built from source with Rust. There are no prebuilt packages yet.
+UndoOS (the `lifeline` command) is currently installed from source. **There is no apt package or prebuilt release package yet.**
 
 ## Requirements
 
-- Linux
-- A recent stable Rust toolchain (<https://rustup.rs>)
-- systemd user services for automatic background startup (optional)
+- Linux (Ubuntu is a supported development target).
+- A recent stable Rust toolchain, including `cargo`.
+- `systemd --user` for automatic background startup (optional).
 
-## Quick install
+Install Rust using the official instructions: <https://rustup.rs>. After installation, open a new terminal and check:
+
+```sh
+rustc --version
+cargo --version
+```
+
+## Install from GitHub
 
 ```sh
 git clone https://github.com/voidsgnl/undoos.git
@@ -16,72 +23,103 @@ cd undoos
 ./scripts/install.sh
 ```
 
-The installer:
+The script builds the release binaries and installs:
 
-1. Builds the Rust binaries.
-2. Installs `lifeline` and `lifeline-daemon` to `~/.local/bin`.
-3. Creates `~/.config/lifeline/config.toml` from the bundled defaults, but never overwrites an existing config.
-4. Installs and enables the user-level systemd service when systemd is available.
+- `lifeline`
+- `lifeline-daemon`
 
-The bundled configuration watches `~/Documents`. Edit `~/.config/lifeline/config.toml` to add or remove folders. Lifeline only watches folders listed there.
+By default, both are placed in `~/.local/bin`. The script also creates `~/.config/lifeline/config.toml` if it does not already exist. It does not overwrite your existing configuration.
 
-Make sure `~/.local/bin` is on your `PATH`.
-
-## Run local checks
-
-GitHub-hosted CI is optional. To check formatting, compile the release binaries, and run the test suite on your own Linux machine:
+If the command is not found, add the install directory to your PATH:
 
 ```sh
-make check
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
-The same checks can be run directly with `sh scripts/check.sh` from the repository root.
+For zsh, use `~/.zshrc` instead of `~/.bashrc`.
 
-## Check it works
+Check the installation:
 
 ```sh
 lifeline --version
-systemctl --user status lifeline-daemon
+command -v lifeline
 ```
 
-If automatic service setup was unavailable, start it manually after installation:
+## Background monitoring
+
+For the default installation under `~/.local`, the installer attempts to enable the user-level systemd service.
+
+Check it:
+
+```sh
+systemctl --user status lifeline-daemon.service
+```
+
+If it is not running, try:
 
 ```sh
 systemctl --user enable --now lifeline-daemon.service
 ```
 
-To see the daemon's recent messages:
+View its recent log messages:
 
 ```sh
-journalctl --user -u lifeline-daemon -f
+journalctl --user -u lifeline-daemon.service -n 50 --no-pager
 ```
 
-## Install somewhere else
+The default config watches `~/Documents`. Lifeline only watches folders listed in `~/.config/lifeline/config.toml`; it does not monitor your entire computer. Review and edit that file before relying on background monitoring.
+
+## Build and install to a custom location
+
+To build without installing:
 
 ```sh
-PREFIX=/usr/local sudo -E ./scripts/install.sh
+cargo build --release
 ```
 
-A custom prefix installs the binaries but skips automatic user-service setup because the bundled service points to `~/.local/bin`. Configure a service manually if you use a custom prefix.
-
-## With make
+To install under `/usr/local/bin`:
 
 ```sh
 make build
-sudo make install        # installs to /usr/local/bin
+sudo make install
 ```
 
-The Makefile path installs binaries only; it does not configure the user service.
+The Makefile installation installs binaries only. It does not create the user configuration or enable the systemd service.
 
-## Where your data lives
+You can also use a custom prefix with the install script:
 
-Lifeline stores its notebook, baselines, and saved copies in `~/.local/share/lifeline`. Set `LIFELINE_HOME` to use another folder.
+```sh
+PREFIX="$HOME/.local/opt/lifeline" ./scripts/install.sh
+```
+
+Add that prefix's `bin` directory to your PATH. Automatic systemd setup is only attempted for the default `~/.local` prefix because the shipped service file expects that location.
+
+## Where Lifeline stores data
+
+- Configuration: `~/.config/lifeline/config.toml`
+- Journal, baselines, and snapshots: `~/.local/share/lifeline`
+
+The data location can be changed for an individual command or test by setting `LIFELINE_HOME`.
 
 ## Uninstall
 
+Remove the programs and stop the default user service while keeping saved recovery data:
+
 ```sh
-./scripts/uninstall.sh            # stops service, removes programs, keeps saved data
-./scripts/uninstall.sh --purge    # also deletes saved data
+./scripts/uninstall.sh
 ```
 
-The uninstall script removes the default user service and binaries. It leaves your configuration and saved recovery data in place unless you explicitly use `--purge` for the saved data.
+To also permanently delete Lifeline's saved recovery data:
+
+```sh
+./scripts/uninstall.sh --purge
+```
+
+**Warning:** `--purge` deletes Lifeline's saved copies and journal. Use it only when you are certain you no longer need them.
+
+## Before relying on it
+
+UndoOS is early-development software. It currently tracks regular files inside configured folders and stores full copies. Package installs/removals, system settings, and many other system-wide changes are not supported yet. Keep normal backups of important data.
+
+See [TESTING.md](TESTING.md) for safe manual checks and the automated test suite.
