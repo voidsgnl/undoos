@@ -704,11 +704,20 @@ fn daemon_records_creation_and_deletion_of_an_empty_directory() {
     let (root, home, watched, config) = setup("daemon-empty-directory", "");
     let empty = watched.join("empty");
 
+    // Establish the watched root as a baseline before the user creates a
+    // directory. Existing folders must not become undo candidates.
+    let initial = daemon_once(&home, &config);
+    assert!(
+        initial.status.success(),
+        "initial baseline scan failed: {}",
+        String::from_utf8_lossy(&initial.stderr)
+    );
+
     fs::create_dir(&empty).unwrap();
     let created = daemon_once(&home, &config);
     assert!(
         created.status.success(),
-        "initial scan failed: {}",
+        "creation scan failed: {}",
         String::from_utf8_lossy(&created.stderr)
     );
     assert!(
