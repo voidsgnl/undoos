@@ -118,11 +118,19 @@ impl Watcher {
     pub fn scan(&mut self) -> Vec<Event> {
         let mut events = Vec::new();
         let mut seen = HashSet::new();
+        let mut seen_dirs = HashSet::new();
         let mut found = Vec::new();
         let mut incomplete = HashSet::new();
         let roots = self.roots.clone();
         for root in &roots {
-            self.walk(root, &mut seen, &mut found, &mut incomplete, &mut events);
+            self.walk(
+                root,
+                &mut seen,
+                &mut seen_dirs,
+                &mut found,
+                &mut incomplete,
+                &mut events,
+            );
         }
         self.detect_moves(&seen, &found, &incomplete, &mut events);
         for path in found {
@@ -138,6 +146,7 @@ impl Watcher {
             }
         }
         self.find_deleted(&seen, &incomplete, &mut events);
+        self.track_directories(&seen_dirs, &incomplete, &mut events);
         events
     }
 
@@ -145,6 +154,7 @@ impl Watcher {
         &mut self,
         dir: &Path,
         seen: &mut HashSet<PathBuf>,
+        seen_dirs: &mut HashSet<PathBuf>,
         found: &mut Vec<PathBuf>,
         incomplete: &mut HashSet<PathBuf>,
         events: &mut Vec<Event>,
@@ -192,7 +202,8 @@ impl Watcher {
                 }
             };
             if meta.is_dir() {
-                self.walk(&path, seen, found, incomplete, events);
+                seen_dirs.insert(path.clone());
+                self.walk(&path, seen, seen_dirs, found, incomplete, events);
             } else if meta.is_file() && meta.len() <= self.max_bytes {
                 seen.insert(path.clone());
                 found.push(path);
@@ -372,6 +383,102 @@ impl Watcher {
                     self.cache.remove(&path);
                     events.push(Event::new("deleted", &path));
                 }
+                Err(err) => events.push(Event::error(&path, &err)),
+            }
+        }
+    }
+
+    /// Persist directory presence transitions independently of file baselines.
+    /// This first stage records structure changes; directory undo/redo is added
+    /// only after these records have been verified by the daemon tests.
+    fn track_directories(
+        &self,
+        seen: &HashSet<PathBuf>,
+        incomplete: &HashSet<PathBuf>,
+        events: &mut Vec<Event>,
+    ) {
+        let entries = match journal::read_all() {
+            Ok(entries) => entries,
+            Err(err) => {
+                events.push(Event {
+                    kind: "error",
+                    text: err,
+                });
+                return;
+            }
+        };
+
+        let mut states = HashMap::<String, bool>::new();
+        for entry in entries {
+            match entry.kind.as_str() {
+                "dir_track" => {
+                    states.insert(entry.path, true);
+                }
+                "dir_deleted" => {
+                    states.insert(entry.path, false);
+                }
+                _ => {}
+            }
+        }
+
+        // Record newly discovered or recreated directories from parents to
+        // children so the journal reads in the same order as the filesystem.
+        let mut created: Vec<PathBuf> = seen
+            .iter()
+            .filter(|path| {
+                path.to_str()
+                    .is_some_and(|text| states.get(text) != Some(&true))
+            })
+            .cloned()
+            .collect();
+        created.sort_by_key(|path| (path.components().count(), path.clone()));
+
+        for path in created {
+            let text = match path.to_str() {
+                Some(text) => text,
+                None => {
+                    events.push(Event::error(&path, "directory path is not valid UTF-8"));
+                    continue;
+                }
+            };
+            match journal::next_id().and_then(|id| journal::append(id, "dir_track", text, "").map(|_| id)) {
+                Ok(_) => events.push(Event::new("dir-tracking", &path)),
+                Err(err) => events.push(Event::error(&path, &err)),
+            }
+        }
+
+        // Missing directories are trusted as deletions only when their watched
+        // root still exists and no unreadable ancestor made the scan incomplete.
+        // Deepest-first ordering makes a future undo restore parents first.
+        let mut deleted: Vec<PathBuf> = states
+            .iter()
+            .filter_map(|(text, active)| {
+                let path = PathBuf::from(text);
+                (*active
+                    && !seen.contains(&path)
+                    && !path.exists()
+                    && !incomplete.iter().any(|dir| path.starts_with(dir))
+                    && self.roots.iter().any(|root| root.exists() && path.starts_with(root)))
+                    .then_some(path)
+            })
+            .collect();
+        deleted.sort_by_key(|path| {
+            (
+                std::cmp::Reverse(path.components().count()),
+                path.clone(),
+            )
+        });
+
+        for path in deleted {
+            let text = match path.to_str() {
+                Some(text) => text,
+                None => {
+                    events.push(Event::error(&path, "directory path is not valid UTF-8"));
+                    continue;
+                }
+            };
+            match journal::next_id().and_then(|id| journal::append(id, "dir_deleted", text, "").map(|_| id)) {
+                Ok(_) => events.push(Event::new("dir-deleted", &path)),
                 Err(err) => events.push(Event::error(&path, &err)),
             }
         }
