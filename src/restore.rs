@@ -302,6 +302,7 @@ pub fn undo_entry(entry: &Entry) -> Result<(), String> {
         ensure_move_identity(new)?;
         let intent_id = journal::next_id()?;
         journal::append(intent_id, "move_undo_pending", &entry.id.to_string(), "")?;
+        test_pause("move_undo_after_intent");
         if let Some(parent) = old.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
@@ -319,12 +320,13 @@ pub fn undo_entry(entry: &Entry) -> Result<(), String> {
                 old.display()
             ));
         }
-        reconcile_move_baseline(new, old)?;
-        journal::append(journal::next_id()?, "restore", &entry.id.to_string(), "")?;
         sync_parent(old)?;
         if new.parent() != old.parent() {
             sync_parent(new)?;
         }
+        test_pause("move_undo_after_rename");
+        reconcile_move_baseline(new, old)?;
+        journal::append(journal::next_id()?, "restore", &entry.id.to_string(), "")?;
         return Ok(());
     }
     if entry.kind != "snap" {
@@ -413,6 +415,7 @@ pub fn redo_last() -> Result<Option<Entry>, String> {
         }
         ensure_move_identity(old)?;
         journal::append(id, "move_redo_pending", &restore.id.to_string(), "")?;
+        test_pause("move_redo_after_intent");
         if let Some(parent) = new.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
@@ -430,12 +433,13 @@ pub fn redo_last() -> Result<Option<Entry>, String> {
                 new.display()
             ));
         }
-        reconcile_move_baseline(old, new)?;
-        journal::append(journal::next_id()?, "redo", &restore.id.to_string(), "")?;
         sync_parent(new)?;
         if old.parent() != new.parent() {
             sync_parent(old)?;
         }
+        test_pause("move_redo_after_rename");
+        reconcile_move_baseline(old, new)?;
+        journal::append(journal::next_id()?, "redo", &restore.id.to_string(), "")?;
         return Ok(Some(restore));
     }
 
