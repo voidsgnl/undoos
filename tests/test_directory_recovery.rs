@@ -177,6 +177,19 @@ fn interrupted_directory_removal_is_reconciled_after_restart() {
     let child = start_paused_undo(&home, "dir_undo_after_remove", &marker);
     kill_at_pause(child, &marker);
     assert!(!directory.exists());
+    let pending_count = fs::read_to_string(home.join("journal.tsv"))
+        .unwrap()
+        .lines()
+        .count();
+    assert_success(&daemon_once(&home, &config), "daemon scan during pending removal");
+    assert_eq!(
+        fs::read_to_string(home.join("journal.tsv"))
+            .unwrap()
+            .lines()
+            .count(),
+        pending_count,
+        "daemon must not record a duplicate deletion while recovery is pending"
+    );
 
     let recovered = lifeline(&home, &["log"]);
     assert_success(&recovered, "reconcile interrupted directory removal");
@@ -199,6 +212,19 @@ fn interrupted_directory_creation_is_reconciled_after_restart() {
     let child = start_paused_undo(&home, "dir_undo_after_rename", &marker);
     kill_at_pause(child, &marker);
     assert!(directory.is_dir());
+    let pending_count = fs::read_to_string(home.join("journal.tsv"))
+        .unwrap()
+        .lines()
+        .count();
+    assert_success(&daemon_once(&home, &config), "daemon scan during pending creation");
+    assert_eq!(
+        fs::read_to_string(home.join("journal.tsv"))
+            .unwrap()
+            .lines()
+            .count(),
+        pending_count,
+        "daemon must not record a duplicate creation while recovery is pending"
+    );
 
     let recovered = lifeline(&home, &["log"]);
     assert_success(&recovered, "reconcile interrupted directory creation");
