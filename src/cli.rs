@@ -48,8 +48,14 @@ pub fn parse(a: &[String]) -> Result<Command, String> {
 pub fn run(cmd: Command) -> Result<(), String> {
     if matches!(cmd, Command::Help | Command::Version) {
         return match cmd {
-            Command::Help => { println!("{USAGE}"); Ok(()) }
-            Command::Version => { println!("lifeline {}", env!("CARGO_PKG_VERSION")); Ok(()) }
+            Command::Help => {
+                println!("{USAGE}");
+                Ok(())
+            }
+            Command::Version => {
+                println!("lifeline {}", env!("CARGO_PKG_VERSION"));
+                Ok(())
+            }
             _ => unreachable!(),
         };
     }
