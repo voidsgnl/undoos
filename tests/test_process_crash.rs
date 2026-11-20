@@ -429,11 +429,11 @@ fn concurrent_cli_waits_for_recovery_transaction_lock() {
     first.kill().expect("kill first Lifeline process");
     let first_status = first.wait().expect("wait for first Lifeline process");
     assert!(!first_status.success());
-    let second_status = second.wait().expect("wait for second Lifeline process");
+    let second_output = second.wait_with_output().expect("wait for second Lifeline process");
     assert!(
-        second_status.success(),
+        second_output.status.success(),
         "second command should acquire the released lock and reconcile: {}",
-        String::from_utf8_lossy(&second.stderr.take().unwrap().read_to_end_vec())
+        String::from_utf8_lossy(&second_output.stderr)
     );
     fs::remove_dir_all(root).unwrap();
 }
