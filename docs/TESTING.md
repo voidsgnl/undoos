@@ -145,7 +145,7 @@ cargo test --test test_directory_recovery -- --nocapture
 
 Do not use Lifeline as the only copy of important data.
 
-The planned directory-structure milestone and later product capabilities are recorded in [the roadmap](ROADMAP.md). Roadmap items are not implemented features; use this guide and the README feature table for the current tested behavior.
+The completed directory-structure milestone and later product capabilities are recorded in [the roadmap](ROADMAP.md). Roadmap items are not implemented features; use this guide and the README feature table for the current tested behavior.
 
 ## 5. Process coordination
 
