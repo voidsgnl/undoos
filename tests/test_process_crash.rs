@@ -176,7 +176,7 @@ fn prepare_move(name: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
     fs::write(
         &config,
         format!(
-            "[watch]\\npaths = [\\"{}\\"]\\nsettle_ms = 0\\n",
+            "[watch]\npaths = [\"{}\"]\nsettle_ms = 0\n",
             watched.display()
         ),
     )
