@@ -288,3 +288,46 @@ fn sigkill_after_move_redo_rename_completes_transaction() {
     assert!(String::from_utf8_lossy(&recovered.stdout).contains("redone"));
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn sigkill_move_undo_does_not_adopt_an_unrelated_replacement_file() {
+    let (root, home, old, new) = prepare_move("move-undo-replaced-destination");
+    let marker = root.join("paused");
+    let child = start_paused(&home, &["undo"], "move_undo_after_rename", &marker);
+    kill_at_pause(child, &marker);
+
+    // Simulate another process replacing the renamed file before Lifeline
+    // gets a chance to reconcile its interrupted transaction.
+    fs::remove_file(&old).unwrap();
+    fs::write(&old, "unrelated replacement").unwrap();
+
+    let recovered = lifeline(&home, &["log"]);
+    assert!(!recovered.status.success(), "reconciliation must refuse an unrelated file");
+    assert_eq!(fs::read_to_string(&old).unwrap(), "unrelated replacement");
+    assert!(!new.exists());
+    let error = String::from_utf8_lossy(&recovered.stderr);
+    assert!(error.contains("not the original moved file"), "{error}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn sigkill_move_redo_does_not_adopt_an_unrelated_replacement_file() {
+    let (root, home, old, new) = prepare_move_redo("move-redo-replaced-destination");
+    let marker = root.join("paused");
+    let child = start_paused(&home, &["redo"], "move_redo_after_rename", &marker);
+    kill_at_pause(child, &marker);
+
+    // A replacement at the destination must not be mistaken for the file
+    // that Lifeline renamed before the crash.
+    fs::remove_file(&new).unwrap();
+    fs::write(&new, "unrelated replacement").unwrap();
+
+    let recovered = lifeline(&home, &["log"]);
+    assert!(!recovered.status.success(), "reconciliation must refuse an unrelated file");
+    assert_eq!(fs::read_to_string(&new).unwrap(), "unrelated replacement");
+    assert!(!old.exists());
+    let error = String::from_utf8_lossy(&recovered.stderr);
+    assert!(error.contains("not the original moved file"), "{error}");
+    fs::remove_dir_all(root).unwrap();
+}
+
