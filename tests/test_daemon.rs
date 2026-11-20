@@ -698,3 +698,85 @@ fn interrupted_move_redo_after_rename_is_completed_on_next_command() {
     assert!(stdout(&out).contains("redone"));
     let _ = fs::remove_dir_all(&root);
 }
+
+
+#[test]
+fn daemon_records_creation_and_deletion_of_an_empty_directory() {
+    let (root, home, watched, config) = setup("daemon-empty-directory", "");
+    let empty = watched.join("empty");
+
+    fs::create_dir(&empty).unwrap();
+    let created = daemon_once(&home, &config);
+    assert!(
+        created.status.success(),
+        "initial scan failed: {}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    assert!(
+        stdout(&created).contains("dir-tracking"),
+        "empty directory creation was not reported: {}",
+        stdout(&created)
+    );
+
+    fs::remove_dir(&empty).unwrap();
+    let deleted = daemon_once(&home, &config);
+    assert!(
+        deleted.status.success(),
+        "deletion scan failed: {}",
+        String::from_utf8_lossy(&deleted.stderr)
+    );
+    assert!(
+        stdout(&deleted).contains("dir-deleted"),
+        "empty directory deletion was not reported: {}",
+        stdout(&deleted)
+    );
+
+    let journal = fs::read_to_string(home.join("journal.tsv")).unwrap();
+    assert!(journal.lines().any(|line| {
+        let fields: Vec<_> = line.split('\t').collect();
+        fields.get(2) == Some(&"dir_track") && fields.get(3) == Some(&empty.to_str().unwrap())
+    }));
+    assert!(journal.lines().any(|line| {
+        let fields: Vec<_> = line.split('\t').collect();
+        fields.get(2) == Some(&"dir_deleted") && fields.get(3) == Some(&empty.to_str().unwrap())
+    }));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn daemon_records_nested_empty_directory_deletions_deepest_first() {
+    let (root, home, watched, config) = setup("daemon-nested-empty-directories", "");
+    let parent = watched.join("parent");
+    let child = parent.join("child");
+    fs::create_dir_all(&child).unwrap();
+
+    let initial = daemon_once(&home, &config);
+    assert!(initial.status.success());
+
+    fs::remove_dir_all(&parent).unwrap();
+    let deleted = daemon_once(&home, &config);
+    assert!(
+        deleted.status.success(),
+        "deletion scan failed: {}",
+        String::from_utf8_lossy(&deleted.stderr)
+    );
+
+    let journal = fs::read_to_string(home.join("journal.tsv")).unwrap();
+    let paths: Vec<_> = journal
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<_> = line.split('\t').collect();
+            (fields.get(2) == Some(&"dir_deleted"))
+                .then(|| fields.get(3).copied())
+                .flatten()
+        })
+        .collect();
+    assert_eq!(
+        paths,
+        vec![child.to_str().unwrap(), parent.to_str().unwrap()],
+        "nested directories must be recorded deepest first"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
