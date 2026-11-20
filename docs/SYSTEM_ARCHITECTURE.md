@@ -96,6 +96,6 @@ Each stage must include normal, conflict, permission, interruption, restart, and
 
 ## Current implementation boundary
 
-The current prototype does **not** provide system-wide protection. Its user-level daemon watches configured folders (default: `~/Documents`). It tracks regular-file contents, file moves, directory presence, and directory permission modes within those configured roots. It does not monitor all of `/`, does not have a privileged system service or system IPC, and does not reverse package, service, account, or general system-setting changes.
+The current prototype does **not** provide system-wide protection. Its user-level daemon watches configured folders (default: `~/Documents`). It tracks regular-file contents, file moves, directory presence, and directory permission modes within those configured roots. A separate privileged-service scaffold now exists: systemd socket activation starts a root-owned process with a root-only control socket, peer-credential checks, and a health-check-only protocol. It does not yet provide user-to-system IPC, monitor all of `/`, or perform privileged recovery. Package, service, account, and general system-setting changes are not currently reversible.
 
 The existing CLI, journal, conflict checks, and crash-reconciliation work are foundations to build on. They are not evidence that whole-system recovery is already available.
