@@ -146,7 +146,11 @@ Do not use Lifeline as the only copy of important data.
 
 The planned directory-structure milestone and later product capabilities are recorded in [the roadmap](ROADMAP.md). Roadmap items are not implemented features; use this guide and the README feature table for the current tested behavior.
 
-## 5. Process coordination\n\nThe CLI and daemon share an exclusive state lock. The daemon releases it after each scan so interactive recovery commands are not blocked for the daemon's entire lifetime. The kernel releases the lock if a process is killed; the persistent lock file can safely remain in the data directory.\n\n## 6. Report a test failure
+## 5. Process coordination
+
+The CLI and daemon share an exclusive state lock. The daemon releases it after each scan so interactive recovery commands are not blocked for the daemon's entire lifetime. The kernel releases the lock if a process is killed; the persistent lock file can safely remain in the data directory.
+
+## 6. Report a test failure
 
 Run the failing test with output enabled:
 
