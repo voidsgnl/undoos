@@ -74,6 +74,7 @@ fn undo_and_redo_deleted_empty_directory() {
 fn undo_and_redo_creation_of_empty_directory() {
     let (root, home, watched, config) = setup("create-empty");
     let directory = watched.join("empty");
+    assert_success(&daemon_once(&home, &config), "initial baseline scan");
     fs::create_dir(&directory).unwrap();
     assert_success(&daemon_once(&home, &config), "creation scan");
 
@@ -91,6 +92,7 @@ fn undo_and_redo_creation_of_empty_directory() {
 fn undo_refuses_to_remove_directory_that_gained_contents() {
     let (root, home, watched, config) = setup("nonempty-conflict");
     let directory = watched.join("empty");
+    assert_success(&daemon_once(&home, &config), "initial baseline scan");
     fs::create_dir(&directory).unwrap();
     assert_success(&daemon_once(&home, &config), "creation scan");
     let file = directory.join("new-user-file.txt");
@@ -186,6 +188,7 @@ fn interrupted_directory_removal_is_reconciled_after_restart() {
 fn interrupted_directory_creation_is_reconciled_after_restart() {
     let (root, home, watched, config) = setup("crash-create");
     let directory = watched.join("empty");
+    assert_success(&daemon_once(&home, &config), "initial baseline scan");
     fs::create_dir(&directory).unwrap();
     assert_success(&daemon_once(&home, &config), "creation scan");
     fs::remove_dir(&directory).unwrap();
@@ -207,6 +210,7 @@ fn interrupted_directory_creation_is_reconciled_after_restart() {
 fn watcher_respects_directory_undo_and_redo_state_without_duplicate_events() {
     let (root, home, watched, config) = setup("watcher-after-recovery");
     let directory = watched.join("empty");
+    assert_success(&daemon_once(&home, &config), "initial baseline scan");
     fs::create_dir(&directory).unwrap();
     assert_success(&daemon_once(&home, &config), "creation scan");
 
