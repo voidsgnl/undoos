@@ -24,12 +24,27 @@ fn lifeline(home: &Path, args: &[&str]) -> std::process::Output {
 }
 
 fn start_paused(home: &Path, args: &[&str], point: &str, marker: &Path) -> Child {
-    Command::new(env!("CARGO_BIN_EXE_lifeline"))
+    start_paused_with_release(home, args, point, marker, None)
+}
+
+fn start_paused_with_release(
+    home: &Path,
+    args: &[&str],
+    point: &str,
+    marker: &Path,
+    release: Option<&Path>,
+) -> Child {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_lifeline"));
+    command
         .args(args)
         .env("LIFELINE_HOME", home)
         .env("LIFELINE_YES", "1")
         .env("LIFELINE_TEST_PAUSE_AT", point)
-        .env("LIFELINE_TEST_PAUSE_MARKER", marker)
+        .env("LIFELINE_TEST_PAUSE_MARKER", marker);
+    if let Some(release) = release {
+        command.env("LIFELINE_TEST_CONTINUE_MARKER", release);
+    }
+    command
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
@@ -328,6 +343,62 @@ fn sigkill_move_redo_does_not_adopt_an_unrelated_replacement_file() {
     assert!(!old.exists());
     let error = String::from_utf8_lossy(&recovered.stderr);
     assert!(error.contains("not the original moved file"), "{error}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn wait_for_marker(child: &mut Child, marker: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while Instant::now() < deadline {
+        if marker.is_file() {
+            return;
+        }
+        if let Some(status) = child.try_wait().expect("poll child") {
+            panic!("lifeline exited before pause marker (status {status})");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    panic!("lifeline never reached transaction pause point");
+}
+
+#[test]
+fn concurrent_edit_during_undo_preparation_is_not_overwritten() {
+    let (root, home, file) = prepare_undo("concurrent-edit-undo");
+    let marker = root.join("paused");
+    let release = root.join("continue");
+    let mut child = start_paused_with_release(
+        &home, &["undo"], "apply_before_commit", &marker, Some(&release)
+    );
+    wait_for_marker(&mut child, &marker);
+    fs::write(&file, "concurrent application edit").unwrap();
+    fs::write(&release, "continue").unwrap();
+    let status = child.wait().expect("wait for lifeline");
+    assert!(!status.success(), "undo must refuse the concurrent edit");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "concurrent application edit");
+    let recovered = lifeline(&home, &["log"]);
+    assert!(!recovered.status.success(), "unresolved conflict must remain visible");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "concurrent application edit");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn concurrent_edit_during_redo_preparation_is_not_overwritten() {
+    let (root, home, file) = prepare_redo("concurrent-edit-redo");
+    let marker = root.join("paused");
+    let release = root.join("continue");
+    let mut child = start_paused_with_release(
+        &home, &["redo"], "apply_before_commit", &marker, Some(&release)
+    );
+    wait_for_marker(&mut child, &marker);
+    fs::write(&file, "concurrent application edit").unwrap();
+    fs::write(&release, "continue").unwrap();
+    let status = child.wait().expect("wait for lifeline");
+    assert!(!status.success(), "redo must refuse the concurrent edit");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "concurrent application edit");
+    let recovered = lifeline(&home, &["log"]);
+    assert!(!recovered.status.success(), "unresolved conflict must remain visible");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "concurrent application edit");
     fs::remove_dir_all(root).unwrap();
 }
 
