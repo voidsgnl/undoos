@@ -500,7 +500,8 @@ impl Watcher {
             let Some(root_text) = root.to_str() else {
                 continue;
             };
-            if !states.contains_key(root_text) && seen.contains(root) {
+            if !states.contains_key(root_text) && root.is_dir() && !incomplete.contains(root) {
+                baseline_paths.insert(root.clone());
                 baseline_paths.extend(seen.iter().filter(|path| path.starts_with(root)).cloned());
             }
         }
