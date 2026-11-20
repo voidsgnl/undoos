@@ -699,7 +699,6 @@ fn interrupted_move_redo_after_rename_is_completed_on_next_command() {
     let _ = fs::remove_dir_all(&root);
 }
 
-
 #[test]
 fn daemon_records_creation_and_deletion_of_an_empty_directory() {
     let (root, home, watched, config) = setup("daemon-empty-directory", "");

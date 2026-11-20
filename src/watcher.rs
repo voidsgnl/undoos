@@ -441,7 +441,9 @@ impl Watcher {
                     continue;
                 }
             };
-            match journal::next_id().and_then(|id| journal::append(id, "dir_track", text, "").map(|_| id)) {
+            match journal::next_id()
+                .and_then(|id| journal::append(id, "dir_track", text, "").map(|_| id))
+            {
                 Ok(_) => events.push(Event::new("dir-tracking", &path)),
                 Err(err) => events.push(Event::error(&path, &err)),
             }
@@ -458,16 +460,14 @@ impl Watcher {
                     && !seen.contains(&path)
                     && !path.exists()
                     && !incomplete.iter().any(|dir| path.starts_with(dir))
-                    && self.roots.iter().any(|root| root.exists() && path.starts_with(root)))
-                    .then_some(path)
+                    && self
+                        .roots
+                        .iter()
+                        .any(|root| root.exists() && path.starts_with(root)))
+                .then_some(path)
             })
             .collect();
-        deleted.sort_by_key(|path| {
-            (
-                std::cmp::Reverse(path.components().count()),
-                path.clone(),
-            )
-        });
+        deleted.sort_by_key(|path| (std::cmp::Reverse(path.components().count()), path.clone()));
 
         for path in deleted {
             let text = match path.to_str() {
@@ -477,7 +477,9 @@ impl Watcher {
                     continue;
                 }
             };
-            match journal::next_id().and_then(|id| journal::append(id, "dir_deleted", text, "").map(|_| id)) {
+            match journal::next_id()
+                .and_then(|id| journal::append(id, "dir_deleted", text, "").map(|_| id))
+            {
                 Ok(_) => events.push(Event::new("dir-deleted", &path)),
                 Err(err) => events.push(Event::error(&path, &err)),
             }
