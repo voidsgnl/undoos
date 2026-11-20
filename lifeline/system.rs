@@ -76,9 +76,7 @@ fn inherited_listener() -> Result<UnixListener, String> {
     let address = listener
         .local_addr()
         .map_err(|e| format!("cannot inspect activated socket address: {e}"))?;
-    if address.as_pathname().map(std::path::Path::new)
-        != Some(std::path::Path::new("/run/lifeline/control.sock"))
-    {
+    if address.as_pathname() != Some(std::path::Path::new("/run/lifeline/control.sock")) {
         return Err("activated socket has an unexpected filesystem path".to_string());
     }
     Ok(listener)
