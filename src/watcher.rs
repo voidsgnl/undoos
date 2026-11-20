@@ -202,6 +202,12 @@ impl Watcher {
                 }
             };
             if meta.is_dir() {
+                // Recovery staging directories are internal transaction state,
+                // not user-created folders. A daemon scan may run after a CLI
+                // crash but before the next command reconciles the transaction.
+                if name.starts_with(".lifeline-dir-") && name.ends_with(".tmp") {
+                    continue;
+                }
                 seen_dirs.insert(path.clone());
                 self.walk(&path, seen, seen_dirs, found, incomplete, events);
             } else if meta.is_file() && meta.len() <= self.max_bytes {
