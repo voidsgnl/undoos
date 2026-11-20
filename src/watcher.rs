@@ -414,6 +414,45 @@ impl Watcher {
             }
         };
 
+        let mut pending_directory_paths = HashSet::<PathBuf>::new();
+        for pending in entries.iter().filter(|entry| {
+            entry.kind == "dir_undo_pending" || entry.kind == "dir_redo_pending"
+        }) {
+            let is_undo = pending.kind == "dir_undo_pending";
+            let completed_kind = if is_undo { "dir_restore" } else { "dir_redo" };
+            let aborted_kind = if is_undo { "dir_undo_abort" } else { "dir_redo_abort" };
+            let resolved = entries.iter().any(|entry| {
+                entry.id > pending.id
+                    && (entry.kind == completed_kind || entry.kind == aborted_kind)
+                    && entry.path == pending.path
+            });
+            if resolved {
+                continue;
+            }
+            let Ok(reference_id) = pending.path.parse::<u64>() else {
+                continue;
+            };
+            let original_id = if is_undo {
+                reference_id
+            } else {
+                let Some(restore) = entries.iter().find(|entry| {
+                    entry.kind == "dir_restore" && entry.id == reference_id
+                }) else {
+                    continue;
+                };
+                let Ok(original_id) = restore.path.parse::<u64>() else {
+                    continue;
+                };
+                original_id
+            };
+            if let Some(original) = entries.iter().find(|entry| {
+                (entry.kind == "dir_track" || entry.kind == "dir_deleted")
+                    && entry.id == original_id
+            }) {
+                pending_directory_paths.insert(PathBuf::from(&original.path));
+            }
+        }
+
         let mut states = HashMap::<String, bool>::new();
         let mut directory_events = HashMap::<u64, (String, String)>::new();
         for entry in &entries {
@@ -540,6 +579,7 @@ impl Watcher {
             .iter()
             .filter(|path| {
                 !moved_directory_set.contains(*path)
+                    && !pending_directory_paths.contains(*path)
                     && path
                         .to_str()
                         .is_some_and(|text| states.get(text) != Some(&true))
@@ -589,6 +629,7 @@ impl Watcher {
                     && !path.exists()
                     && !incomplete.iter().any(|dir| path.starts_with(dir))
                     && !moved_directory_set.contains(&path)
+                    && !pending_directory_paths.contains(&path)
                     && self
                         .roots
                         .iter()
