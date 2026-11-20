@@ -1,5 +1,5 @@
 //! Argument parsing and command dispatch.
-use crate::{guard, journal, restore, snapshot};
+use crate::{guard, journal, lock::StateLock, restore, snapshot};
 use std::fs;
 pub const USAGE: &str = "\
 lifeline - a system-wide undo button for Linux
@@ -46,12 +46,19 @@ pub fn parse(a: &[String]) -> Result<Command, String> {
     }
 }
 pub fn run(cmd: Command) -> Result<(), String> {
-    if !matches!(cmd, Command::Help | Command::Version) {
-        restore::reconcile_pending()?;
+    if matches!(cmd, Command::Help | Command::Version) {
+        return match cmd {
+            Command::Help => { println!("{USAGE}"); Ok(()) }
+            Command::Version => { println!("lifeline {}", env!("CARGO_PKG_VERSION")); Ok(()) }
+            _ => unreachable!(),
+        };
     }
+    // One lock spans reconciliation and the complete command. This prevents
+    // another CLI process or daemon scan from interleaving journal mutations.
+    let _state_lock = StateLock::acquire()?;
+    restore::reconcile_pending()?;
     match cmd {
-        Command::Help => println!("{USAGE}"),
-        Command::Version => println!("lifeline {}", env!("CARGO_PKG_VERSION")),
+        Command::Help | Command::Version => unreachable!(),
         Command::Log => {
             let es = journal::read_all()?;
             if es.is_empty() {
