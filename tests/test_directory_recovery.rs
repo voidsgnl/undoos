@@ -394,3 +394,24 @@ fn interrupted_directory_creation_before_rename_is_completed_safely() {
     assert!(directory.is_dir());
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn named_checkpoint_rewind_includes_directory_events() {
+    let (root, home, watched, config) = setup("checkpoint-directory");
+    assert_success(&daemon_once(&home, &config), "initial baseline scan");
+    assert_success(
+        &lifeline(&home, &["checkpoint", "before-directory"]),
+        "create checkpoint",
+    );
+    let directory = watched.join("empty");
+    fs::create_dir(&directory).unwrap();
+    assert_success(&daemon_once(&home, &config), "creation scan");
+
+    let rewind = lifeline(&home, &["back", "before-directory"]);
+    assert_success(&rewind, "rewind directory creation");
+    assert!(!directory.exists());
+
+    assert_success(&lifeline(&home, &["redo"]), "redo rewound directory");
+    assert!(directory.is_dir());
+    let _ = fs::remove_dir_all(root);
+}
