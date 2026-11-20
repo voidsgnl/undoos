@@ -192,8 +192,9 @@ fn daemon_recovers_all_files_from_a_deleted_directory() {
         "expected deletion events: {output}"
     );
 
-    // Each file has its own saved state. Undo repeatedly to restore the tree.
-    for _ in 0..2 {
+    // The two directory-presence events and two file snapshots are
+    // separate timeline entries, so undo each one in reverse order.
+    for _ in 0..4 {
         let out = lifeline(&home, &["undo"]);
         assert!(
             out.status.success(),
