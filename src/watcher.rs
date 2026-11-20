@@ -389,8 +389,8 @@ impl Watcher {
     }
 
     /// Persist directory presence transitions independently of file baselines.
-    /// This first stage records structure changes; directory undo/redo is added
-    /// only after these records have been verified by the daemon tests.
+    /// The first scan records existing paths as non-undoable baselines; later
+    /// transitions become reversible directory events.
     fn track_directories(
         &self,
         seen: &HashSet<PathBuf>,
