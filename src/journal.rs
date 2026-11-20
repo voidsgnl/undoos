@@ -169,6 +169,48 @@ pub fn find_checkpoint(name: &str) -> Result<Option<u64>, String> {
         .map(|e| e.id))
 }
 
+/// Directory presence events which have not yet been undone (or whose undo was redone).
+pub fn active_directories() -> Result<Vec<Entry>, String> {
+    let entries = read_all()?;
+    let mut latest = std::collections::HashMap::<u64, u64>::new();
+    let mut redone = std::collections::HashSet::<u64>::new();
+    for e in &entries {
+        if e.kind == "dir_restore" {
+            if let Ok(id) = e.path.parse() {
+                latest.insert(id, e.id);
+            }
+        } else if e.kind == "dir_redo" {
+            if let Ok(id) = e.path.parse() {
+                redone.insert(id);
+            }
+        }
+    }
+    Ok(entries
+        .into_iter()
+        .filter(|e| {
+            (e.kind == "dir_track" || e.kind == "dir_deleted")
+                && match latest.get(&e.id) {
+                    None => true,
+                    Some(r) => redone.contains(r),
+                }
+        })
+        .collect())
+}
+
+/// Most recent directory undo which has not yet been redone.
+pub fn pending_directory_redo() -> Result<Option<Entry>, String> {
+    let entries = read_all()?;
+    let redone: std::collections::HashSet<u64> = entries
+        .iter()
+        .filter(|e| e.kind == "dir_redo")
+        .filter_map(|e| e.path.parse().ok())
+        .collect();
+    Ok(entries
+        .into_iter()
+        .rev()
+        .find(|e| e.kind == "dir_restore" && !redone.contains(&e.id)))
+}
+
 /// Move entries which have not yet been undone (or whose undo was redone).
 pub fn active_moves() -> Result<Vec<Entry>, String> {
     let entries = read_all()?;
