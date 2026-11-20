@@ -761,8 +761,10 @@ fn parse_directory_mode(snapshot: &str) -> Option<(String, u32)> {
 
 /// Parse a directory-mode transition: identity:old-mode:new-mode.
 fn parse_directory_mode_change(snapshot: &str) -> Option<(String, u32, u32)> {
-    let (identity, modes) = snapshot.split_once(':')?;
-    let (old_mode, new_mode) = modes.split_once(':')?;
+    let mut parts = snapshot.rsplitn(3, ':');
+    let new_mode = parts.next()?;
+    let old_mode = parts.next()?;
+    let identity = parts.next()?;
     Some((
         identity.to_string(),
         u32::from_str_radix(old_mode, 8).ok()?,
