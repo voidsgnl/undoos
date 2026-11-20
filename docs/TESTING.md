@@ -125,6 +125,9 @@ The automated suite includes checks for:
 - Undoing and redoing empty-directory creation and deletion, including nested empty directories.
 - Refusing to remove a directory after new contents have appeared or when its identity no longer matches the recorded directory.
 - Keeping pre-existing watched directories as non-undoable baseline state.
+- Detecting directory permission-mode changes and avoiding duplicate events.
+- Undoing and redoing directory permission changes, while refusing to overwrite an external chmod.
+- Reconciling interrupted directory permission changes from durable intent records.
 - Reconciling interrupted file, tracked-move, and directory transactions from durable journal intent.
 
 ### Real process-crash tests
@@ -137,7 +140,7 @@ cargo test --test test_process_crash -- --nocapture
 
 It covers thirteen cases: SIGKILL after the durable intent and after the filesystem operation for file undo/redo and tracked-move undo/redo; two cases where an unrelated file replaces a move destination before reconciliation; two cases where another process edits a file while undo or redo is being prepared, and a competing CLI process waiting for the exclusive state lock. These are genuine process-termination tests, not simulated journal states. The pause hooks are inert in release builds. They do not simulate sudden power loss, storage-controller failure, or every filesystem-specific durability behavior; those require separate testing on real filesystems and hardware.
 
-Directory moves are currently tracked as individual moves for files inside the directory. Empty-directory creation and deletion are independently reversible, but directory-wide recovery is not one atomic transaction. The `test_directory_recovery` suite checks ordinary undo/redo, nested ordering, non-empty conflicts, and real process interruption during directory creation/removal. Run it directly with:
+Directory moves are currently tracked as individual moves for files inside the directory. Empty-directory creation and deletion are independently reversible, but directory-wide recovery is not one atomic transaction. The `test_directory_recovery` suite checks ordinary undo/redo, nested ordering, non-empty conflicts, directory permission detection and recovery, permission conflicts, and real process interruption during directory creation/removal. Run it directly with:
 
 ```sh
 cargo test --test test_directory_recovery -- --nocapture
