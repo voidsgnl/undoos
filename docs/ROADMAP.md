@@ -23,6 +23,7 @@ The product should feel like a safety net, not a system-administration tool that
 The current prototype provides:
 
 - A Rust command-line application named `lifeline` and a background `lifeline-daemon`.
+- An opt-in root-owned systemd socket/service scaffold with a root-only health-check protocol; it does not yet expose recovery operations to the user CLI.
 - Configurable watched folders, with `~/Documents` as the default.
 - File baselines and saved copies for observed file changes and deletions.
 - `lifeline log`, `undo`, and `redo`, plus manual snapshots and named checkpoints.
