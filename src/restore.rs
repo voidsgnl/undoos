@@ -185,6 +185,184 @@ fn ensure_reconciled_move_identity(baseline_path: &Path, live_path: &Path) -> Re
     Ok(())
 }
 
+fn directory_identity(path: &Path) -> Result<String, String> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|e| format!("cannot inspect directory {}: {e}", path.display()))?;
+    if !metadata.file_type().is_dir() {
+        return Err(format!("recovery conflict: {} is not a directory", path.display()));
+    }
+    Ok(format!("{}:{}", metadata.dev(), metadata.ino()))
+}
+
+fn staged_directory_path(destination: &Path, id: u64) -> PathBuf {
+    let mut name = destination.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".lifeline-dir-{id}.tmp"));
+    destination.with_file_name(name)
+}
+
+fn directory_is_empty(path: &Path) -> Result<bool, String> {
+    let mut entries = fs::read_dir(path)
+        .map_err(|e| format!("cannot inspect directory {}: {e}", path.display()))?;
+    Ok(entries.next().is_none())
+}
+
+fn create_directory_transaction(
+    original: &Entry,
+    pending_kind: &str,
+    completed_kind: &str,
+    reference_id: u64,
+) -> Result<(), String> {
+    let destination = Path::new(&original.path);
+    if fs::symlink_metadata(destination).is_ok() {
+        return Err(format!(
+            "recovery conflict: {} already exists; leaving it untouched",
+            destination.display()
+        ));
+    }
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    if !parent.is_dir() {
+        return Err(format!(
+            "cannot restore directory {} because its parent {} is missing",
+            destination.display(),
+            parent.display()
+        ));
+    }
+    let id = journal::next_id()?;
+    let staged = staged_directory_path(destination, id);
+    if fs::symlink_metadata(&staged).is_ok() {
+        return Err(format!("temporary recovery path already exists: {}", staged.display()));
+    }
+    fs::create_dir(&staged)
+        .map_err(|e| format!("cannot stage directory {}: {e}", staged.display()))?;
+    let identity = match directory_identity(&staged) {
+        Ok(identity) => identity,
+        Err(error) => {
+            let _ = fs::remove_dir(&staged);
+            return Err(error);
+        }
+    };
+    if let Err(error) = journal::append(id, pending_kind, &reference_id.to_string(), &identity) {
+        let _ = fs::remove_dir(&staged);
+        return Err(error);
+    }
+    test_pause(if pending_kind == "dir_undo_pending" {
+        "dir_undo_after_intent"
+    } else {
+        "dir_redo_after_intent"
+    });
+    if let Err(error) = fs::rename(&staged, destination) {
+        journal::append(
+            journal::next_id()?,
+            if pending_kind == "dir_undo_pending" { "dir_undo_abort" } else { "dir_redo_abort" },
+            &reference_id.to_string(),
+            "",
+        )?;
+        let _ = fs::remove_dir(&staged);
+        return Err(format!(
+            "cannot restore directory {}: {error}",
+            destination.display()
+        ));
+    }
+    sync_parent(destination)?;
+    test_pause(if pending_kind == "dir_undo_pending" {
+        "dir_undo_after_rename"
+    } else {
+        "dir_redo_after_rename"
+    });
+    journal::append(journal::next_id()?, completed_kind, &reference_id.to_string(), "")?;
+    Ok(())
+}
+
+fn remove_directory_transaction(
+    original: &Entry,
+    pending_kind: &str,
+    completed_kind: &str,
+    reference_id: u64,
+) -> Result<(), String> {
+    let destination = Path::new(&original.path);
+    let identity = directory_identity(destination)?;
+    if !directory_is_empty(destination)? {
+        return Err(format!(
+            "recovery conflict: {} is not empty; refusing to remove it or any of its contents",
+            destination.display()
+        ));
+    }
+    let id = journal::next_id()?;
+    journal::append(id, pending_kind, &reference_id.to_string(), &identity)?;
+    test_pause(if pending_kind == "dir_undo_pending" {
+        "dir_undo_after_intent"
+    } else {
+        "dir_redo_after_intent"
+    });
+    if let Err(error) = fs::remove_dir(destination) {
+        journal::append(
+            journal::next_id()?,
+            if pending_kind == "dir_undo_pending" { "dir_undo_abort" } else { "dir_redo_abort" },
+            &reference_id.to_string(),
+            "",
+        )?;
+        return Err(format!(
+            "cannot remove directory {} safely: {error}",
+            destination.display()
+        ));
+    }
+    sync_parent(destination)?;
+    test_pause(if pending_kind == "dir_undo_pending" {
+        "dir_undo_after_remove"
+    } else {
+        "dir_redo_after_remove"
+    });
+    journal::append(journal::next_id()?, completed_kind, &reference_id.to_string(), "")?;
+    Ok(())
+}
+
+fn undo_directory_entry(entry: &Entry) -> Result<(), String> {
+    match entry.kind.as_str() {
+        "dir_track" => remove_directory_transaction(
+            entry,
+            "dir_undo_pending",
+            "dir_restore",
+            entry.id,
+        ),
+        "dir_deleted" => create_directory_transaction(
+            entry,
+            "dir_undo_pending",
+            "dir_restore",
+            entry.id,
+        ),
+        _ => Ok(()),
+    }
+}
+
+fn redo_directory_entry(restore: &Entry) -> Result<(), String> {
+    let original_id: u64 = restore.path.parse().map_err(|_| {
+        format!("invalid directory recovery reference: {}", restore.path)
+    })?;
+    let original = journal::read_all()?
+        .into_iter()
+        .find(|entry| {
+            (entry.kind == "dir_track" || entry.kind == "dir_deleted")
+                && entry.id == original_id
+        })
+        .ok_or_else(|| format!("original directory event #{original_id} is missing"))?;
+    match original.kind.as_str() {
+        "dir_track" => create_directory_transaction(
+            &original,
+            "dir_redo_pending",
+            "dir_redo",
+            restore.id,
+        ),
+        "dir_deleted" => remove_directory_transaction(
+            &original,
+            "dir_redo_pending",
+            "dir_redo",
+            restore.id,
+        ),
+        _ => Ok(()),
+    }
+}
+
 /// Resolve interrupted file and move undo/redo transactions before accepting new work.
 /// A transaction is completed only when the live file matches the intended snapshot;
 /// it is aborted only when the original pre-operation state is still present.
