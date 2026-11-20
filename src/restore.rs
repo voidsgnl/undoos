@@ -198,6 +198,94 @@ fn directory_identity(path: &Path) -> Result<String, String> {
     Ok(format!("{}:{}", metadata.dev(), metadata.ino()))
 }
 
+fn directory_mode_state(path: &Path) -> Result<(String, u32), String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("cannot inspect directory {}: {error}", path.display()))?;
+    if !metadata.file_type().is_dir() {
+        return Err(format!("recovery conflict: {} is no longer a directory; leaving it untouched", path.display()));
+    }
+    Ok((
+        format!("{}:{}", metadata.dev(), metadata.ino()),
+        metadata.permissions().mode() & 0o7777,
+    ))
+}
+
+fn parse_mode_transaction(snapshot: &str) -> Option<(String, u32, u32)> {
+    let mut parts = snapshot.rsplitn(3, ':');
+    let desired = u32::from_str_radix(parts.next()?, 8).ok()?;
+    let expected = u32::from_str_radix(parts.next()?, 8).ok()?;
+    let identity = parts.next()?.to_string();
+    Some((identity, expected, desired))
+}
+
+fn change_directory_mode(
+    original: &Entry,
+    reference_id: u64,
+    pending_kind: &str,
+    completed_kind: &str,
+    expected_mode: u32,
+    desired_mode: u32,
+    expected_identity: &str,
+) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = Path::new(&original.path);
+    let (identity, mode) = directory_mode_state(path)?;
+    if identity != expected_identity || mode != expected_mode {
+        return Err(format!(
+            "recovery conflict: directory {} has changed since Lifeline recorded it; expected mode {:04o}, found {:04o}. Leaving it untouched.",
+            path.display(), expected_mode, mode
+        ));
+    }
+
+    let pending_id = journal::next_id()?;
+    let snapshot = format!("{identity}:{expected_mode:04o}:{desired_mode:04o}");
+    journal::append(pending_id, pending_kind, &reference_id.to_string(), &snapshot)?;
+    test_pause(if pending_kind == "dir_mode_undo_pending" {
+        "dir_mode_undo_after_intent"
+    } else {
+        "dir_mode_redo_after_intent"
+    });
+
+    let (live_identity, live_mode) = directory_mode_state(path)?;
+    if live_identity != identity || live_mode != expected_mode {
+        journal::append(
+            journal::next_id()?,
+            if pending_kind == "dir_mode_undo_pending" {
+                "dir_mode_undo_abort"
+            } else {
+                "dir_mode_redo_abort"
+            },
+            &reference_id.to_string(),
+            "",
+        )?;
+        return Err(format!(
+            "recovery conflict: directory {} changed while recovery was being prepared; leaving it untouched",
+            path.display()
+        ));
+    }
+
+    fs::set_permissions(path, fs::Permissions::from_mode(desired_mode))
+        .map_err(|error| format!("cannot change permissions on {}: {error}", path.display()))?;
+    OpenOptions::new()
+        .read(true)
+        .open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| format!("cannot sync directory permissions for {}: {error}", path.display()))?;
+    test_pause(if pending_kind == "dir_mode_undo_pending" {
+        "dir_mode_undo_after_chmod"
+    } else {
+        "dir_mode_redo_after_chmod"
+    });
+    journal::append(
+        journal::next_id()?,
+        completed_kind,
+        &reference_id.to_string(),
+        &snapshot,
+    )?;
+    Ok(())
+}
+
 fn rename_directory_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
@@ -422,6 +510,14 @@ fn remove_directory_transaction(
 
 fn undo_directory_entry(entry: &Entry) -> Result<(), String> {
     match entry.kind.as_str() {
+        "dir_mode" => {
+            let (identity, old_mode, new_mode) = parse_mode_transaction(&entry.snapshot)
+                .ok_or_else(|| format!("invalid directory permission history for {}", entry.path))?;
+            change_directory_mode(
+                entry, entry.id, "dir_mode_undo_pending", "dir_mode_restore",
+                new_mode, old_mode, &identity,
+            )
+        }
         "dir_track" => remove_directory_transaction(
             entry,
             "dir_undo_pending",
@@ -437,6 +533,22 @@ fn undo_directory_entry(entry: &Entry) -> Result<(), String> {
         ),
         _ => Ok(()),
     }
+}
+
+fn redo_directory_mode_entry(restore: &Entry) -> Result<(), String> {
+    let original_id: u64 = restore.path.parse().map_err(|_| {
+        format!("invalid directory permission recovery reference: {}", restore.path)
+    })?;
+    let original = journal::read_all()?
+        .into_iter()
+        .find(|entry| entry.kind == "dir_mode" && entry.id == original_id)
+        .ok_or_else(|| format!("original directory permission event #{original_id} is missing"))?;
+    let (identity, old_mode, new_mode) = parse_mode_transaction(&original.snapshot)
+        .ok_or_else(|| format!("invalid directory permission history for {}", original.path))?;
+    change_directory_mode(
+        &original, restore.id, "dir_mode_redo_pending", "dir_mode_redo",
+        old_mode, new_mode, &identity,
+    )
 }
 
 fn redo_directory_entry(restore: &Entry) -> Result<(), String> {
@@ -776,7 +888,7 @@ pub fn reconcile_pending() -> Result<(), String> {
 
 /// Restore a saved file and append a record of the state replaced.
 pub fn undo_entry(entry: &Entry) -> Result<(), String> {
-    if entry.kind == "dir_track" || entry.kind == "dir_deleted" {
+    if entry.kind == "dir_track" || entry.kind == "dir_deleted" || entry.kind == "dir_mode" {
         return undo_directory_entry(entry);
     }
     if entry.kind == "move" {
@@ -873,6 +985,7 @@ pub fn undo_last() -> Result<Option<Entry>, String> {
         .into_iter()
         .chain(journal::active_moves()?.into_iter())
         .chain(journal::active_directories()?.into_iter())
+        .chain(journal::active_directory_modes()?.into_iter())
         .max_by_key(|e| e.id)
     {
         Some(entry) => entry,
@@ -886,14 +999,16 @@ pub fn undo_last() -> Result<Option<Entry>, String> {
 pub fn redo_last() -> Result<Option<Entry>, String> {
     let file_restore = journal::pending_redo()?;
     let directory_restore = journal::pending_directory_redo()?;
-    let restore = match (file_restore, directory_restore) {
-        (Some(file), Some(directory)) => {
-            if file.id > directory.id { file } else { directory }
-        }
-        (Some(file), None) => file,
-        (None, Some(directory)) => directory,
-        (None, None) => return Ok(None),
-    };
+    let mode_restore = journal::pending_directory_mode_redo()?;
+    let restore = [file_restore, directory_restore, mode_restore]
+        .into_iter()
+        .flatten()
+        .max_by_key(|entry| entry.id);
+    let Some(restore) = restore else { return Ok(None) };
+    if restore.kind == "dir_mode_restore" {
+        redo_directory_mode_entry(&restore)?;
+        return Ok(Some(restore));
+    }
     if restore.kind == "dir_restore" {
         redo_directory_entry(&restore)?;
         return Ok(Some(restore));
@@ -997,6 +1112,7 @@ pub fn rewind_to(id: u64) -> Result<usize, String> {
         .into_iter()
         .chain(journal::active_moves()?.into_iter())
         .chain(journal::active_directories()?.into_iter())
+        .chain(journal::active_directory_modes()?.into_iter())
         .filter(|e| e.id > id)
         .collect();
     newer.sort_by_key(|e| std::cmp::Reverse(e.id));
