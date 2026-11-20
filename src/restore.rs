@@ -118,7 +118,7 @@ fn apply_snapshot(
     }
 
     let temporary = temporary_sibling(dest);
-    let result = (|| -> io::Result<()> {
+    let prepared = (|| -> io::Result<()> {
         let mut input = fs::File::open(&source)?;
         let permissions = input.metadata()?.permissions();
         let mut output = OpenOptions::new()
@@ -129,18 +129,28 @@ fn apply_snapshot(
         // Match the saved file's mode bits (including executable/read-only).
         fs::set_permissions(&temporary, permissions)?;
         output.sync_all()?;
-        // Pause hook lets integration tests introduce a concurrent edit at
-        // the exact boundary between preparation and atomic replacement.
-        test_pause("apply_before_commit");
-        verify_current().map_err(|message| io::Error::new(io::ErrorKind::Other, message))?;
-        fs::rename(&temporary, dest)?;
-        // Persist the directory entry change as well as the file contents.
-        let parent = dest.parent().unwrap_or_else(|| Path::new("."));
-        OpenOptions::new().read(true).open(parent)?.sync_all()?;
         Ok(())
     })();
 
-    if let Err(err) = result {
+    if let Err(err) = prepared {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("cannot prepare recovery copy for {}: {err}", destination));
+    }
+
+    // Recheck after staging the full replacement, immediately before rename.
+    // This closes the practical race between the earlier backup and file copy.
+    test_pause("apply_before_commit");
+    if let Err(err) = verify_current() {
+        let _ = fs::remove_file(&temporary);
+        return Err(err);
+    }
+
+    let committed = fs::rename(&temporary, dest).and_then(|()| {
+        // Persist the directory entry change as well as the file contents.
+        let parent = dest.parent().unwrap_or_else(|| Path::new("."));
+        OpenOptions::new().read(true).open(parent)?.sync_all()
+    });
+    if let Err(err) = committed {
         let _ = fs::remove_file(&temporary);
         return Err(format!("cannot atomically restore {}: {err}", destination));
     }
