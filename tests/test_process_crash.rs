@@ -408,8 +408,7 @@ fn concurrent_edit_during_redo_preparation_is_not_overwritten() {
 fn concurrent_cli_waits_for_recovery_transaction_lock() {
     let (root, home, _file) = prepare_undo("state-lock-serialization");
     let marker = root.join("paused");
-    let first = start_paused(&home, &["undo"], "undo_after_intent", &marker);
-    let mut first = first;
+    let mut first = start_paused(&home, &["undo"], "undo_after_intent", &marker);
     wait_for_marker(&mut first, &marker);
 
     let mut second = Command::new(env!("CARGO_BIN_EXE_lifeline"))
@@ -429,7 +428,9 @@ fn concurrent_cli_waits_for_recovery_transaction_lock() {
     first.kill().expect("kill first Lifeline process");
     let first_status = first.wait().expect("wait for first Lifeline process");
     assert!(!first_status.success());
-    let second_output = second.wait_with_output().expect("wait for second Lifeline process");
+    let second_output = second
+        .wait_with_output()
+        .expect("wait for second Lifeline process");
     assert!(
         second_output.status.success(),
         "second command should acquire the released lock and reconcile: {}",
