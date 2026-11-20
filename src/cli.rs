@@ -92,7 +92,7 @@ pub fn run(cmd: Command) -> Result<(), String> {
                     "dir_deleted" => format!("Recreate directory {}?", e.path),
                     "dir_mode" => {
                         let new_mode = e.snapshot.rsplit(':').next().unwrap_or("unknown");
-                        let old_mode = e.snapshot.rsplitn(2, ':').nth(1).unwrap_or("unknown");
+                        let old_mode = e.snapshot.rsplit(':').nth(1).unwrap_or("unknown");
                         format!("Restore permissions on {} from {} to {}?", e.path, new_mode, old_mode)
                     }
                     _ if guard::would_overwrite(&e.path) => format!(
@@ -182,7 +182,7 @@ fn rewind(id: u64) -> Result<(), String> {
         .iter()
         .chain(moves.iter())
         .chain(directories.iter())
-        .chain(journal::active_directory_modes()?.iter())
+        .chain(journal::active_directory_modes()?.into_iter())
         .filter(|e| e.id > id)
         .count();
     if count == 0 {
