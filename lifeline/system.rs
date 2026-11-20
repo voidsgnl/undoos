@@ -35,9 +35,52 @@ fn inherited_listener() -> Result<UnixListener, String> {
         return Err(format!("expected exactly one activated socket, received {count}"));
     }
 
-    // systemd passes the first listening socket at file descriptor 3.
-    // The descriptor is transferred into Rust ownership here.
-    let listener = unsafe { UnixListener::from_raw_fd(3) };
+    // Validate descriptor 3 before transferring ownership from systemd.
+    let fd = 3;
+    if unsafe { libc::fcntl(fd, libc::F_GETFD) } == -1 {
+        return Err("systemd did not provide a valid socket descriptor".to_string());
+    }
+
+    let mut socket_type: libc::c_int = 0;
+    let mut option_len = std::mem::size_of_val(&socket_type) as libc::socklen_t;
+    let type_result = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_TYPE,
+            &mut socket_type as *mut libc::c_int as *mut libc::c_void,
+            &mut option_len,
+        )
+    };
+    if type_result != 0 || socket_type != libc::SOCK_STREAM {
+        return Err("activated descriptor is not a stream socket".to_string());
+    }
+
+    let mut accepting: libc::c_int = 0;
+    option_len = std::mem::size_of_val(&accepting) as libc::socklen_t;
+    let accept_result = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_ACCEPTCONN,
+            &mut accepting as *mut libc::c_int as *mut libc::c_void,
+            &mut option_len,
+        )
+    };
+    if accept_result != 0 || accepting != 1 {
+        return Err("activated stream socket is not listening".to_string());
+    }
+
+    // systemd passes the first listening socket at descriptor 3.
+    let listener = unsafe { UnixListener::from_raw_fd(fd) };
+    let address = listener
+        .local_addr()
+        .map_err(|e| format!("cannot inspect activated socket address: {e}"))?;
+    if address.as_pathname().map(std::path::Path::new)
+        != Some(std::path::Path::new("/run/lifeline/control.sock"))
+    {
+        return Err("activated socket has an unexpected filesystem path".to_string());
+    }
     Ok(listener)
 }
 
