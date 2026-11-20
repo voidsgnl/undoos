@@ -42,7 +42,10 @@ fn default_config() -> Option<PathBuf> {
 fn scan_locked(watcher: &mut Watcher) -> Vec<undoos::watcher::Event> {
     match StateLock::acquire() {
         Ok(_lock) => watcher.scan(),
-        Err(error) => vec![undoos::watcher::Event { kind: "error", text: error }],
+        Err(error) => vec![undoos::watcher::Event {
+            kind: "error",
+            text: error,
+        }],
     }
 }
 
