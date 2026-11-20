@@ -62,6 +62,23 @@ After file and directory recovery are dependable, the longer-term goal is to exp
 
 These areas require different kinds of evidence and recovery logic. They should not be treated as ordinary file snapshots, and they should be added only when the operation can be reversed safely and tested thoroughly.
 
+## System-wide Wayback/Wayforward direction
+
+The long-term product is one coherent timeline of meaningful Linux changes, not a collection of unrelated backup tools. The same user-facing history should eventually include files, package transactions, service state, and supported system settings.
+
+This requires more than expanding the current folder list or running the existing user daemon as root. Different change domains need dedicated observers and recovery adapters. The target design separates the unprivileged CLI and per-user agent from a narrowly privileged system service, with authenticated local IPC and separately protected system recovery storage.
+
+The implementation order is:
+
+1. Establish the privileged service, authorization boundary, IPC protocol, and system-owned storage.
+2. Add carefully scoped system filesystem coverage with mount-boundary and virtual-filesystem exclusions.
+3. Add package-manager transaction capture and recovery.
+4. Add supported systemd service-state recovery.
+5. Add settings, account, ownership, ACL, and other domains only when their previous state can be captured and safely restored.
+6. Integrate all supported domains into dependency-aware Wayback and Wayforward operations.
+
+The architecture and safety requirements are documented in [System-wide architecture](SYSTEM_ARCHITECTURE.md). This is the target design; none of the privileged system-wide capabilities above should be considered implemented yet.
+
 ## User experience
 
 ### Command line first
