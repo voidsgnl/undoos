@@ -202,3 +202,59 @@ fn interrupted_directory_creation_is_reconciled_after_restart() {
     assert!(directory.is_dir());
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn watcher_respects_directory_undo_and_redo_state_without_duplicate_events() {
+    let (root, home, watched, config) = setup("watcher-after-recovery");
+    let directory = watched.join("empty");
+    fs::create_dir(&directory).unwrap();
+    assert_success(&daemon_once(&home, &config), "creation scan");
+
+    let journal_path = home.join("journal.tsv");
+    let initial_count = fs::read_to_string(&journal_path).unwrap().lines().count();
+
+    assert_success(&lifeline(&home, &["undo"]), "undo creation");
+    assert!(!directory.exists());
+    let after_undo = daemon_once(&home, &config);
+    assert_success(&after_undo, "scan after undo");
+    assert_eq!(
+        fs::read_to_string(&journal_path).unwrap().lines().count(),
+        initial_count + 2,
+        "the scan must not add a duplicate directory-deletion event"
+    );
+
+    assert_success(&lifeline(&home, &["redo"]), "redo creation");
+    assert!(directory.is_dir());
+    let after_redo = daemon_once(&home, &config);
+    assert_success(&after_redo, "scan after redo");
+    assert_eq!(
+        fs::read_to_string(&journal_path).unwrap().lines().count(),
+        initial_count + 3,
+        "the scan must not add a duplicate directory-creation event"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn watcher_respects_restoration_of_a_deleted_directory() {
+    let (root, home, watched, config) = setup("watcher-after-restore");
+    let directory = watched.join("empty");
+    fs::create_dir(&directory).unwrap();
+    assert_success(&daemon_once(&home, &config), "creation scan");
+    fs::remove_dir(&directory).unwrap();
+    assert_success(&daemon_once(&home, &config), "deletion scan");
+
+    let journal_path = home.join("journal.tsv");
+    let before_undo = fs::read_to_string(&journal_path).unwrap().lines().count();
+    assert_success(&lifeline(&home, &["undo"]), "undo deletion");
+    assert!(directory.is_dir());
+
+    let after_undo = daemon_once(&home, &config);
+    assert_success(&after_undo, "scan after restoring directory");
+    assert_eq!(
+        fs::read_to_string(&journal_path).unwrap().lines().count(),
+        before_undo + 1,
+        "the scan must not add a duplicate directory-creation event"
+    );
+    let _ = fs::remove_dir_all(root);
+}
