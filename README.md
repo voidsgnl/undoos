@@ -46,7 +46,7 @@ cd undoos
 
 The default install places binaries in `~/.local/bin`, creates a default configuration, and attempts to start `lifeline-daemon` as a user systemd service. Make sure `~/.local/bin` is on your `PATH`.
 
-See [docs/INSTALL.md](docs/INSTALL.md) for other options.
+See [docs/INSTALL.md](docs/INSTALL.md) for installation options and [docs/TESTING.md](docs/TESTING.md) for safe local testing.
 
 ## Commands
 
