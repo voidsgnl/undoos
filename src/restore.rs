@@ -288,6 +288,12 @@ fn create_directory_transaction(
     } else {
         "dir_redo_after_intent"
     });
+    if !directory_is_empty(&staged)? {
+        return Err(format!(
+            "recovery conflict: staged directory {} gained contents; leaving it untouched",
+            staged.display()
+        ));
+    }
     if let Err(error) = rename_directory_noreplace(&staged, destination) {
         journal::append(
             journal::next_id()?,
@@ -520,6 +526,12 @@ pub fn reconcile_pending() -> Result<(), String> {
                     pending.id, destination.display()
                 ));
             } else if staged_identity.as_deref() == Some(pending.snapshot.as_str()) {
+                if !directory_is_empty(&staged)? {
+                    return Err(format!(
+                        "unfinished directory transaction #{} found contents in staging path {}; leaving them untouched",
+                        pending.id, staged.display()
+                    ));
+                }
                 rename_directory_noreplace(&staged, destination).map_err(|error| {
                     format!(
                         "cannot finish restoring directory {}: {error}",
