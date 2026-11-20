@@ -24,6 +24,14 @@ The journal is append-only during normal operation. Undoing does not delete the 
 | `src/watcher.rs` | Scans watched folders for changed and deleted files |
 | `lifeline/daemon.rs` | Runs native filesystem event monitoring and periodic reconciliation |
 
+## Directory history (initial stage)
+
+The watcher records directory presence transitions in the same append-only journal:
+- `dir_track`: a directory was first observed or reappeared.
+- `dir_deleted`: a previously observed directory is now missing.
+
+This includes empty directories and nested empty directories. Deletions are recorded deepest first so a future recovery operation can recreate parents before children. This stage records directory history only; directory undo/redo is not implemented yet. Unreadable ancestors and unavailable watched roots must not be interpreted as directory deletions.
+
 ## Journal format
 
 `journal.tsv`, one entry per line, tab-separated:
