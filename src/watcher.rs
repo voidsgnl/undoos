@@ -463,7 +463,12 @@ impl Watcher {
         };
         let mut moved_directory_set = HashSet::<PathBuf>::new();
         for movement in active_moves {
-            for file_path in [Path::new(&movement.path), Path::new(&movement.snapshot)] {
+            let old_path = Path::new(&movement.path);
+            let new_path = Path::new(&movement.snapshot);
+            if !old_path.exists() && !new_path.exists() {
+                continue;
+            }
+            for file_path in [old_path, new_path] {
                 let mut ancestor = file_path.parent();
                 while let Some(directory) = ancestor {
                     if self.roots.iter().any(|root| directory.starts_with(root)) {
