@@ -190,7 +190,10 @@ fn directory_identity(path: &Path) -> Result<String, String> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|e| format!("cannot inspect directory {}: {e}", path.display()))?;
     if !metadata.file_type().is_dir() {
-        return Err(format!("recovery conflict: {} is not a directory", path.display()));
+        return Err(format!(
+            "recovery conflict: {} is not a directory",
+            path.display()
+        ));
     }
     Ok(format!("{}:{}", metadata.dev(), metadata.ino()))
 }
@@ -264,7 +267,10 @@ fn create_directory_transaction(
     let id = journal::next_id()?;
     let staged = staged_directory_path(destination, id);
     if fs::symlink_metadata(&staged).is_ok() {
-        return Err(format!("temporary recovery path already exists: {}", staged.display()));
+        return Err(format!(
+            "temporary recovery path already exists: {}",
+            staged.display()
+        ));
     }
     fs::create_dir(&staged)
         .map_err(|e| format!("cannot stage directory {}: {e}", staged.display()))?;
@@ -297,7 +303,11 @@ fn create_directory_transaction(
     if let Err(error) = rename_directory_noreplace(&staged, destination) {
         journal::append(
             journal::next_id()?,
-            if pending_kind == "dir_undo_pending" { "dir_undo_abort" } else { "dir_redo_abort" },
+            if pending_kind == "dir_undo_pending" {
+                "dir_undo_abort"
+            } else {
+                "dir_redo_abort"
+            },
             &reference_id.to_string(),
             "",
         )?;
@@ -331,7 +341,9 @@ fn remove_directory_transaction(
 ) -> Result<(), String> {
     let destination = Path::new(&original.path);
     let identity = directory_identity(destination)?;
-    if expected_identity.is_some_and(|expected| !expected.is_empty() && expected != identity.as_str()) {
+    if expected_identity
+        .is_some_and(|expected| !expected.is_empty() && expected != identity.as_str())
+    {
         return Err(format!(
             "recovery conflict: {} is not the directory Lifeline recorded; leaving it untouched",
             destination.display()
