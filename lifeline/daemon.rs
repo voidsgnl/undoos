@@ -6,6 +6,7 @@ use std::{env, path::PathBuf, process, sync::mpsc, thread, time::Duration};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher as NotifyWatcher};
 use undoos::config::Config;
 use undoos::journal;
+use undoos::lock::StateLock;
 use undoos::watcher::Watcher;
 
 const USAGE: &str = "\
@@ -35,6 +36,13 @@ fn default_config() -> Option<PathBuf> {
         Some(path)
     } else {
         None
+    }
+}
+
+fn scan_locked(watcher: &mut Watcher) -> Vec<undoos::watcher::Event> {
+    match StateLock::acquire() {
+        Ok(_lock) => watcher.scan(),
+        Err(error) => vec![undoos::watcher::Event { kind: "error", text: error }],
     }
 }
 
