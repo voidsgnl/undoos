@@ -93,7 +93,7 @@ fn main() {
     // --once is deliberately a plain reconciliation scan for tests and
     // diagnostics. The long-running daemon uses native filesystem events.
     if once {
-        for event in watcher.scan() {
+        for event in scan_locked(&mut watcher) {
             println!("{event}");
         }
         return;
@@ -129,7 +129,7 @@ fn main() {
 
     // Take an initial baseline after registering watches so changes occurring
     // during startup are either in this scan or queued as filesystem events.
-    for event in watcher.scan() {
+    for event in scan_locked(&mut watcher) {
         println!("{event}");
     }
 
@@ -138,20 +138,20 @@ fn main() {
             Ok(Ok(_event)) => {
                 // Coalesce bursts (editors often emit several events per save).
                 while rx.try_recv().is_ok() {}
-                for event in watcher.scan() {
+                for event in scan_locked(&mut watcher) {
                     println!("{event}");
                 }
             }
             Ok(Err(error)) => {
                 eprintln!("lifeline-daemon: filesystem event error: {error}; reconciling");
-                for event in watcher.scan() {
+                for event in scan_locked(&mut watcher) {
                     println!("{event}");
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 // Also catches missed events, queue overflow, and changes made
                 // while a watched directory was temporarily unavailable.
-                for event in watcher.scan() {
+                for event in scan_locked(&mut watcher) {
                     println!("{event}");
                 }
             }
@@ -159,7 +159,7 @@ fn main() {
                 eprintln!("lifeline-daemon: filesystem event stream stopped; using periodic scans");
                 loop {
                     thread::sleep(Duration::from_millis(cfg.poll_ms));
-                    for event in watcher.scan() {
+                    for event in scan_locked(&mut watcher) {
                         println!("{event}");
                     }
                 }
