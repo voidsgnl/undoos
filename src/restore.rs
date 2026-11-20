@@ -275,7 +275,10 @@ fn create_directory_transaction(
             return Err(error);
         }
     };
-    sync_parent(&staged)?;
+    if let Err(error) = sync_parent(&staged) {
+        let _ = fs::remove_dir(&staged);
+        return Err(error);
+    }
     if let Err(error) = journal::append(id, pending_kind, &reference_id.to_string(), &identity) {
         let _ = fs::remove_dir(&staged);
         return Err(error);
