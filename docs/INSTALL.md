@@ -116,7 +116,7 @@ systemctl status lifeline-system.socket
 Test the health-check protocol:
 
 ```sh
-sudo python3 -c 'import socket; s=socket.socket(socket.AF_UNIX); s.connect("/run/lifeline/control.sock"); s.sendall(b"PING\\n"); print(s.recv(64).decode(), end="")'
+sudo python3 -c 'import socket; s=socket.socket(socket.AF_UNIX); s.connect("/run/lifeline/control.sock"); s.sendall(b"PING\n"); print(s.recv(64).decode(), end="")'
 ```
 
 Expected response:
