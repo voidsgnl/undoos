@@ -30,6 +30,7 @@ The current prototype provides:
 - Conflict checks and reconciliation for interrupted file undo/redo, tracked file moves, and empty-directory operations.
 - Linux file-identity support for recognizing certain same-filesystem renames.
 - Independent empty-directory undo/redo, including crash reconciliation and non-empty-directory protection.
+- Directory permission-mode detection and independent undo/redo with identity checks, conflict protection, and interrupted-operation reconciliation.
 
 This is not yet whole-system protection. The current watcher tracks regular file contents and directory presence inside configured folders; it does not automatically monitor every system location or every type of system change.
 
@@ -55,7 +56,7 @@ After file and directory recovery are dependable, the longer-term goal is to exp
 
 - Application and package installation or removal.
 - User and desktop settings, including selected configuration files and dotfiles.
-- File permissions and ownership changes.
+- Ownership, ACL, and extended-attribute changes.
 - System and user services.
 - Other reversible system changes where UndoOS can reliably capture the prior state and detect conflicts.
 
