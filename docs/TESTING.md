@@ -132,11 +132,11 @@ The `test_process_crash` integration test starts real Lifeline child processes, 
 cargo test --test test_process_crash -- --nocapture
 ```
 
-It covers twelve cases: SIGKILL after the durable intent and after the filesystem operation for file undo/redo and tracked-move undo/redo; two cases where an unrelated file replaces a move destination before reconciliation; and two cases where another process edits a file while undo or redo is being prepared. These are genuine process-termination tests, not simulated journal states. The pause hooks are inert in release builds. They do not simulate sudden power loss, storage-controller failure, or every filesystem-specific durability behavior; those require separate testing on real filesystems and hardware.
+It covers thirteen cases: SIGKILL after the durable intent and after the filesystem operation for file undo/redo and tracked-move undo/redo; two cases where an unrelated file replaces a move destination before reconciliation; two cases where another process edits a file while undo or redo is being prepared, and a competing CLI process waiting for the exclusive state lock. These are genuine process-termination tests, not simulated journal states. The pause hooks are inert in release builds. They do not simulate sudden power loss, storage-controller failure, or every filesystem-specific durability behavior; those require separate testing on real filesystems and hardware.
 
 Directory moves are currently tracked as individual moves for files inside the directory. Empty directories are not independently journaled, and directory-wide recovery is not yet one atomic transaction. Do not use Lifeline as the only copy of important data.
 
-## 5. Report a test failure
+## 5. Process coordination\n\nThe CLI and daemon share an exclusive state lock. The daemon releases it after each scan so interactive recovery commands are not blocked for the daemon's entire lifetime. The kernel releases the lock if a process is killed; the persistent lock file can safely remain in the data directory.\n\n## 6. Report a test failure
 
 Run the failing test with output enabled:
 
