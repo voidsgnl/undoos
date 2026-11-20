@@ -24,13 +24,21 @@ The journal is append-only during normal operation. Undoing does not delete the 
 | `src/watcher.rs` | Scans watched folders for changed and deleted files |
 | `lifeline/daemon.rs` | Runs native filesystem event monitoring and periodic reconciliation |
 
-## Directory history (initial stage)
+## Directory history and recovery
 
-The watcher records directory presence transitions in the same append-only journal:
-- `dir_track`: a directory was first observed or reappeared.
-- `dir_deleted`: a previously observed directory is now missing.
+The first successful scan records each watched root and its existing directories as non-undoable `dir_baseline` entries. This prevents pre-existing folders from being treated as user-created actions.
 
-This includes empty directories and nested empty directories. Deletions are recorded deepest first so a future recovery operation can recreate parents before children. This stage records directory history only; directory undo/redo is not implemented yet. Unreadable ancestors and unavailable watched roots must not be interpreted as directory deletions.
+Later directory presence transitions are recorded in the same append-only journal:
+- `dir_track`: an empty directory was created or a previously deleted directory reappeared.
+- `dir_deleted`: a previously tracked directory is now missing.
+
+Creation events are recorded parent-first; deletion events are recorded deepest-first. This lets undo recreate deleted parents before children, and redo remove children before parents.
+
+Directory events participate in the same `lifeline undo`, `redo`, `back`, and `to` timeline as file snapshots and moves. Undoing `dir_track` removes that directory only when it is empty. Undoing `dir_deleted` recreates the directory. Redo applies the opposite operation. A directory containing user data is never recursively removed.
+
+Directory creation is staged as a sibling directory. Its device/inode identity is recorded in a durable pending event before an atomic no-overwrite rename installs it at the target path. If Lifeline stops during the operation, the next CLI command compares the target and staging identities before completing or aborting. It does not adopt an unrelated directory. Directory removal uses `rmdir`, records the directory identity before the operation, and refuses non-empty directories. An ambiguous interrupted operation stops for attention rather than guessing.
+
+Unreadable ancestors and unavailable watched roots must not be interpreted as directory deletions.
 
 ## Journal format
 
