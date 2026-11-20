@@ -197,7 +197,7 @@ pub fn active_directories() -> Result<Vec<Entry>, String> {
     Ok(entries
         .into_iter()
         .filter(|e| {
-            (e.kind == "dir_track" || e.kind == "dir_deleted")
+            (e.kind == "dir_deleted" || (e.kind == "dir_track" && !e.snapshot.is_empty()))
                 && match latest.get(&e.id) {
                     None => true,
                     Some(r) => redone.contains(r),
