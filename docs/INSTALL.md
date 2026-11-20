@@ -95,6 +95,50 @@ PREFIX="$HOME/.local/opt/lifeline" ./scripts/install.sh
 
 Add that prefix's `bin` directory to your PATH. Automatic systemd setup is only attempted for the default `~/.local` prefix because the shipped service file expects that location.
 
+## Optional privileged system-service foundation
+
+UndoOS also includes an **early, opt-in system-service scaffold**. It is separate from the user-level file watcher and is not required for normal `lifeline` use.
+
+Build and install it:
+
+```sh
+make system-install
+```
+
+This installs a root-owned systemd socket and service. The control socket is restricted to root (mode `0600`), the service checks the connecting process credentials, and its only supported request is a health check. It does not monitor system files, change system settings, or perform recovery operations yet. Ordinary user processes cannot connect to it.
+
+Check that the socket is enabled:
+
+```sh
+systemctl status lifeline-system.socket
+```
+
+Test the health-check protocol:
+
+```sh
+sudo python3 -c 'import socket; s=socket.socket(socket.AF_UNIX); s.connect("/run/lifeline/control.sock"); s.sendall(b"PING\\n"); print(s.recv(64).decode(), end="")'
+```
+
+Expected response:
+
+```text
+PONG
+```
+
+The first request starts the service through systemd socket activation. Inspect its messages with:
+
+```sh
+sudo journalctl -u lifeline-system.service -n 30 --no-pager
+```
+
+Remove this optional scaffold with:
+
+```sh
+make system-uninstall
+```
+
+This removes the systemd units and service binary only. It does not remove the user daemon, configuration, journal, or recovery copies.
+
 ## Where Lifeline stores data
 
 - Configuration: `~/.config/lifeline/config.toml`
