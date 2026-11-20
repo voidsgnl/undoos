@@ -420,14 +420,13 @@ fn redo_directory_entry(restore: &Entry) -> Result<(), String> {
             "dir_redo_pending",
             "dir_redo",
             restore.id,
-            Some(restore.snapshot.as_str()),
         ),
         "dir_deleted" => remove_directory_transaction(
             &original,
             "dir_redo_pending",
             "dir_redo",
             restore.id,
-            Some(&restore.snapshot),
+            Some(restore.snapshot.as_str()),
         ),
         _ => Ok(()),
     }
