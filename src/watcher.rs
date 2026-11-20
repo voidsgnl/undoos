@@ -147,6 +147,7 @@ impl Watcher {
         }
         self.find_deleted(&seen, &incomplete, &mut events);
         self.track_directories(&seen_dirs, &incomplete, &mut events);
+        self.track_directory_modes(&seen_dirs, &mut events);
         events
     }
 
@@ -655,6 +656,118 @@ impl Watcher {
             }
         }
     }
+
+    /// Record directory permission-mode baselines and changes. This is a
+    /// detection-only journal event for now; recovery is added in a later step.
+    fn track_directory_modes(&self, seen: &HashSet<PathBuf>, events: &mut Vec<Event>) {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let entries = match journal::read_all() {
+            Ok(entries) => entries,
+            Err(err) => {
+                events.push(Event {
+                    kind: "error",
+                    text: err,
+                });
+                return;
+            }
+        };
+
+        // Replay the last known mode for each directory. A replacement inode
+        // starts a fresh baseline rather than being mistaken for a chmod.
+        let mut known = HashMap::<String, (String, u32)>::new();
+        for entry in &entries {
+            match entry.kind.as_str() {
+                "dir_mode_baseline" => {
+                    if let Some((identity, mode)) = parse_directory_mode(&entry.snapshot) {
+                        known.insert(entry.path.clone(), (identity, mode));
+                    }
+                }
+                "dir_mode" => {
+                    if let Some((identity, _old_mode, new_mode)) =
+                        parse_directory_mode_change(&entry.snapshot)
+                    {
+                        known.insert(entry.path.clone(), (identity, new_mode));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut paths = seen.clone();
+        paths.extend(self.roots.iter().cloned());
+        let mut paths: Vec<PathBuf> = paths.into_iter().collect();
+        paths.sort();
+
+        for path in paths {
+            let text = match path.to_str() {
+                Some(text) => text,
+                None => {
+                    events.push(Event::error(&path, "directory path is not valid UTF-8"));
+                    continue;
+                }
+            };
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.file_type().is_dir() => metadata,
+                Ok(_) => continue,
+                Err(_) => continue,
+            };
+            let identity = format!("{}:{}", metadata.dev(), metadata.ino());
+            let mode = metadata.permissions().mode() & 0o7777;
+
+            match known.get(text) {
+                None => {
+                    let snapshot = format!("{identity}:{mode:04o}");
+                    match journal::next_id().and_then(|id| {
+                        journal::append(id, "dir_mode_baseline", text, &snapshot).map(|_| id)
+                    }) {
+                        Ok(_) => {
+                            known.insert(text.to_string(), (identity, mode));
+                        }
+                        Err(err) => events.push(Event::error(&path, &err)),
+                    }
+                }
+                Some((known_identity, known_mode)) if known_identity != &identity => {
+                    let snapshot = format!("{identity}:{mode:04o}");
+                    match journal::next_id().and_then(|id| {
+                        journal::append(id, "dir_mode_baseline", text, &snapshot).map(|_| id)
+                    }) {
+                        Ok(_) => {
+                            known.insert(text.to_string(), (identity, mode));
+                        }
+                        Err(err) => events.push(Event::error(&path, &err)),
+                    }
+                }
+                Some((_, known_mode)) if *known_mode != mode => {
+                    let snapshot = format!("{identity}:{known_mode:04o}:{mode:04o}");
+                    match journal::next_id().and_then(|id| {
+                        journal::append(id, "dir_mode", text, &snapshot).map(|_| id)
+                    }) {
+                        Ok(_) => events.push(Event::new("dir-mode", &path)),
+                        Err(err) => events.push(Event::error(&path, &err)),
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Parse the identity and mode stored by a directory-mode baseline.
+fn parse_directory_mode(snapshot: &str) -> Option<(String, u32)> {
+    let (identity, mode) = snapshot.rsplit_once(':')?;
+    Some((identity.to_string(), u32::from_str_radix(mode, 8).ok()?))
+}
+
+/// Parse a directory-mode transition: identity:old-mode:new-mode.
+fn parse_directory_mode_change(snapshot: &str) -> Option<(String, u32, u32)> {
+    let (identity, modes) = snapshot.split_once(':')?;
+    let (old_mode, new_mode) = modes.split_once(':')?;
+    Some((
+        identity.to_string(),
+        u32::from_str_radix(old_mode, 8).ok()?,
+        u32::from_str_radix(new_mode, 8).ok()?,
+    ))
 }
 
 /// Put the baseline copy of `path` on the shelf as a new undo point.
