@@ -412,9 +412,11 @@ impl Watcher {
         let mut directory_events = HashMap::<u64, (String, String)>::new();
         for entry in &entries {
             match entry.kind.as_str() {
-                "dir_track" => {
+                "dir_baseline" | "dir_track" => {
                     states.insert(entry.path.clone(), true);
-                    directory_events.insert(entry.id, (entry.path.clone(), entry.kind.clone()));
+                    if entry.kind == "dir_track" {
+                        directory_events.insert(entry.id, (entry.path.clone(), entry.kind.clone()));
+                    }
                 }
                 "dir_deleted" => {
                     states.insert(entry.path.clone(), false);
@@ -443,6 +445,36 @@ impl Watcher {
                     }
                 }
                 _ => {}
+            }
+        }
+
+        // The first successful scan of each watched root establishes a
+        // baseline, not a user action. Existing folders must never become
+        // undo candidates merely because Lifeline was installed later.
+        let mut baseline_paths = HashSet::<PathBuf>::new();
+        for root in &self.roots {
+            let Some(root_text) = root.to_str() else {
+                continue;
+            };
+            if !states.contains_key(root_text) && seen.contains(root) {
+                baseline_paths.extend(seen.iter().filter(|path| path.starts_with(root)).cloned());
+            }
+        }
+        let mut baseline_paths: Vec<PathBuf> = baseline_paths.into_iter().collect();
+        baseline_paths.sort_by_key(|path| (path.components().count(), path.clone()));
+        for path in baseline_paths {
+            let Some(text) = path.to_str() else {
+                events.push(Event::error(&path, "directory path is not valid UTF-8"));
+                continue;
+            };
+            match journal::next_id()
+                .and_then(|id| journal::append(id, "dir_baseline", text, "").map(|_| id))
+            {
+                Ok(_) => {
+                    states.insert(text.to_string(), true);
+                    events.push(Event::new("dir-baseline", &path));
+                }
+                Err(err) => events.push(Event::error(&path, &err)),
             }
         }
 
