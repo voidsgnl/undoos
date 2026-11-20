@@ -195,6 +195,32 @@ fn directory_identity(path: &Path) -> Result<String, String> {
     Ok(format!("{}:{}", metadata.dev(), metadata.ino()))
 }
 
+fn rename_directory_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let source = CString::new(source.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "source path contains NUL"))?;
+    let destination = CString::new(destination.as_os_str().as_bytes()).map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidInput, "destination path contains NUL")
+    })?;
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            libc::AT_FDCWD,
+            source.as_ptr(),
+            libc::AT_FDCWD,
+            destination.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
 fn staged_directory_path(destination: &Path, id: u64) -> PathBuf {
     let mut name = destination.file_name().unwrap_or_default().to_os_string();
     name.push(format!(".lifeline-dir-{id}.tmp"));
@@ -204,7 +230,14 @@ fn staged_directory_path(destination: &Path, id: u64) -> PathBuf {
 fn directory_is_empty(path: &Path) -> Result<bool, String> {
     let mut entries = fs::read_dir(path)
         .map_err(|e| format!("cannot inspect directory {}: {e}", path.display()))?;
-    Ok(entries.next().is_none())
+    match entries.next() {
+        None => Ok(true),
+        Some(Ok(_)) => Ok(false),
+        Some(Err(error)) => Err(format!(
+            "cannot inspect directory contents in {}: {error}",
+            path.display()
+        )),
+    }
 }
 
 fn create_directory_transaction(
@@ -242,6 +275,7 @@ fn create_directory_transaction(
             return Err(error);
         }
     };
+    sync_parent(&staged)?;
     if let Err(error) = journal::append(id, pending_kind, &reference_id.to_string(), &identity) {
         let _ = fs::remove_dir(&staged);
         return Err(error);
@@ -251,7 +285,7 @@ fn create_directory_transaction(
     } else {
         "dir_redo_after_intent"
     });
-    if let Err(error) = fs::rename(&staged, destination) {
+    if let Err(error) = rename_directory_noreplace(&staged, destination) {
         journal::append(
             journal::next_id()?,
             if pending_kind == "dir_undo_pending" { "dir_undo_abort" } else { "dir_redo_abort" },
@@ -460,10 +494,12 @@ pub fn reconcile_pending() -> Result<(), String> {
                     pending.id, destination.display()
                 ));
             } else if staged_identity.as_deref() == Some(pending.snapshot.as_str()) {
-                fs::rename(&staged, destination).map_err(|error| format!(
-                    "cannot finish restoring directory {}: {error}",
-                    destination.display()
-                ))?;
+                rename_directory_noreplace(&staged, destination).map_err(|error| {
+                    format!(
+                        "cannot finish restoring directory {}: {error}",
+                        destination.display()
+                    )
+                })?;
                 sync_parent(destination)?;
                 journal::append(journal::next_id()?, completed_kind, &pending.path, "")?;
             } else if staged_identity.is_none() {
