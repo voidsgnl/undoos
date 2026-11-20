@@ -131,6 +131,34 @@ fn undo_refuses_directory_permission_change_after_external_chmod() {
 }
 
 #[test]
+fn interrupted_directory_permission_undo_is_reconciled_after_restart() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (root, home, watched, config) = setup("directory-mode-crash");
+    let directory = watched.join("permissions");
+    fs::create_dir(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_success(&daemon_once(&home, &config), "initial permission baseline scan");
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o750)).unwrap();
+    assert_success(&daemon_once(&home, &config), "permission change scan");
+
+    let marker = root.join("paused");
+    let child = start_paused_undo(&home, "dir_mode_undo_after_chmod", &marker);
+    kill_at_pause(child, &marker);
+    assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o7777, 0o700);
+
+    let recovered = lifeline(&home, &["log"]);
+    assert_success(&recovered, "reconcile interrupted permission undo");
+    assert!(
+        String::from_utf8_lossy(&recovered.stdout).contains("dir_mode_restore"),
+        "reconciliation should append the missing completion event"
+    );
+    assert_success(&lifeline(&home, &["redo"]), "redo reconciled permission undo");
+    assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o7777, 0o750);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn undo_and_redo_deleted_empty_directory() {
     let (root, home, watched, config) = setup("delete-empty");
     let directory = watched.join("empty");
