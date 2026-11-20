@@ -22,6 +22,12 @@ fn test_pause(point: &str) {
     if let Ok(marker) = std::env::var("LIFELINE_TEST_PAUSE_MARKER") {
         let _ = fs::write(marker, point);
     }
+    if let Ok(release) = std::env::var("LIFELINE_TEST_CONTINUE_MARKER") {
+        while !Path::new(&release).exists() {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        return;
+    }
     loop {
         std::thread::sleep(std::time::Duration::from_secs(60));
     }
@@ -73,7 +79,23 @@ fn sync_parent(path: &Path) -> Result<(), String> {
 /// Install a saved version without ever exposing a partially copied destination.
 /// The temporary file is created in the same directory so rename stays atomic
 /// on the destination filesystem.
-fn apply_snapshot(name: &str, destination: &str) -> Result<(), String> {
+fn apply_snapshot(
+    name: &str,
+    destination: &str,
+    expected_current: &str,
+) -> Result<(), String> {
+    // The file may have changed after the initial conflict check and backup.
+    // Revalidate immediately before the destructive filesystem operation.
+    let verify_current = || -> Result<(), String> {
+        if snapshot::matches(expected_current, Path::new(destination))? {
+            Ok(())
+        } else {
+            Err(format!(
+                "recovery conflict: {} changed while recovery was being prepared; leaving the newer state untouched",
+                destination
+            ))
+        }
+    };
     let dest = Path::new(destination);
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)
@@ -81,6 +103,8 @@ fn apply_snapshot(name: &str, destination: &str) -> Result<(), String> {
     }
 
     if name.is_empty() {
+        test_pause("apply_before_commit");
+        verify_current()?;
         if dest.exists() {
             fs::remove_file(dest).map_err(|e| format!("cannot remove {}: {e}", dest.display()))?;
             sync_parent(dest)?;
@@ -105,6 +129,10 @@ fn apply_snapshot(name: &str, destination: &str) -> Result<(), String> {
         // Match the saved file's mode bits (including executable/read-only).
         fs::set_permissions(&temporary, permissions)?;
         output.sync_all()?;
+        // Pause hook lets integration tests introduce a concurrent edit at
+        // the exact boundary between preparation and atomic replacement.
+        test_pause("apply_before_commit");
+        verify_current().map_err(|message| io::Error::new(io::ErrorKind::Other, message))?;
         fs::rename(&temporary, dest)?;
         // Persist the directory entry change as well as the file contents.
         let parent = dest.parent().unwrap_or_else(|| Path::new("."));
@@ -367,7 +395,7 @@ pub fn undo_entry(entry: &Entry) -> Result<(), String> {
     };
     journal::append(id + 1, "undo_pending", &entry.id.to_string(), &backup)?;
     test_pause("undo_after_intent");
-    if let Err(err) = apply_snapshot(&entry.snapshot, &entry.path) {
+    if let Err(err) = apply_snapshot(&entry.snapshot, &entry.path, &backup) {
         // If the original state is still present, record a clean abort. If the
         // atomic rename happened, leave the intent for startup reconciliation.
         if snapshot::matches(&backup, dest).unwrap_or(false) {
