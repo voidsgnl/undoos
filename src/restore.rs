@@ -412,7 +412,7 @@ fn redo_directory_entry(restore: &Entry) -> Result<(), String> {
     }
 }
 
-/// Resolve interrupted file and move undo/redo transactions before accepting new work.
+/// Resolve interrupted file, move, and directory transactions before accepting new work.
 /// A transaction is completed only when the live file matches the intended snapshot;
 /// it is aborted only when the original pre-operation state is still present.
 pub fn reconcile_pending() -> Result<(), String> {
