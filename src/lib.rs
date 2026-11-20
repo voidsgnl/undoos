@@ -5,6 +5,7 @@ pub mod cli;
 pub mod config;
 pub mod guard;
 pub mod journal;
+pub mod lock;
 pub mod restore;
 pub mod snapshot;
 pub mod watcher;
