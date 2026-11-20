@@ -158,7 +158,6 @@ fn sigkill_after_redo_apply_finishes_transaction_on_next_command() {
     fs::remove_dir_all(root).unwrap();
 }
 
-
 fn daemon_once(home: &Path, config: &Path) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_lifeline-daemon"))
         .args(["--config", config.to_str().unwrap(), "--once"])
