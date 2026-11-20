@@ -147,3 +147,8 @@ cargo test test_name -- --nocapture
 ```
 
 Replace `test_name` with the name shown in the failure. Include the complete error output, operating system, and filesystem type when reporting a bug.
+
+
+## Directory detection tests
+
+The daemon integration tests also verify that empty-directory creation and deletion are persisted in the journal, and that nested directory deletions are recorded deepest first. These tests cover detection and history only; they do not imply that directory undo/redo is available yet.
