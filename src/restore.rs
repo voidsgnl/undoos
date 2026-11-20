@@ -128,6 +128,26 @@ fn reconcile_move_baseline(from: &Path, to: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// During crash recovery, path existence alone cannot prove that a rename
+/// completed: another file may have appeared at the destination. Compare the
+/// live file with the identity retained by the baseline (which may already
+/// have been relocated by a partially completed reconciliation).
+fn ensure_reconciled_move_identity(baseline_path: &Path, live_path: &Path) -> Result<(), String> {
+    let expected = baseline::identity(baseline_path)
+        .or_else(|| baseline::identity(live_path))
+        .ok_or_else(|| format!(
+            "cannot safely reconcile move: saved identity for {} is missing; leaving both paths and history untouched",
+            baseline_path.display()
+        ))?;
+    if baseline::live_identity(live_path) != Some(expected) {
+        return Err(format!(
+            "recovery conflict: {} is not the original moved file; leaving it untouched",
+            live_path.display()
+        ));
+    }
+    Ok(())
+}
+
 /// Resolve interrupted file and move undo/redo transactions before accepting new work.
 /// A transaction is completed only when the live file matches the intended snapshot;
 /// it is aborted only when the original pre-operation state is still present.
@@ -193,11 +213,15 @@ pub fn reconcile_pending() -> Result<(), String> {
 
         match (source_exists, destination_exists) {
             (true, false) => {
-                // The rename never happened, so the baseline must stay with
-                // the still-existing source path.
+                // Confirm the source is still the file recorded before
+                // declaring that the rename never happened.
+                ensure_reconciled_move_identity(source, source)?;
                 journal::append(id, aborted_kind, &pending.path, "")?;
             }
             (false, true) => {
+                // Confirm the destination is the original file before
+                // accepting the rename as completed.
+                ensure_reconciled_move_identity(source, destination)?;
                 reconcile_move_baseline(source, destination)?;
                 journal::append(id, completed_kind, &pending.path, "")?;
             }
