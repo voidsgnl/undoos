@@ -294,9 +294,9 @@ fn create_directory_transaction(
     } else {
         "dir_redo_after_intent"
     });
-    if !directory_is_empty(&staged)? {
+    if directory_identity(&staged)? != identity || !directory_is_empty(&staged)? {
         return Err(format!(
-            "recovery conflict: staged directory {} gained contents; leaving it untouched",
+            "recovery conflict: staged directory {} changed; leaving it untouched",
             staged.display()
         ));
     }
@@ -362,6 +362,38 @@ fn remove_directory_transaction(
     } else {
         "dir_redo_after_intent"
     });
+    let live_identity = match directory_identity(destination) {
+        Ok(identity) => identity,
+        Err(error) => {
+            journal::append(
+                journal::next_id()?,
+                if pending_kind == "dir_undo_pending" {
+                    "dir_undo_abort"
+                } else {
+                    "dir_redo_abort"
+                },
+                &reference_id.to_string(),
+                "",
+            )?;
+            return Err(error);
+        }
+    };
+    if live_identity != identity || !directory_is_empty(destination)? {
+        journal::append(
+            journal::next_id()?,
+            if pending_kind == "dir_undo_pending" {
+                "dir_undo_abort"
+            } else {
+                "dir_redo_abort"
+            },
+            &reference_id.to_string(),
+            "",
+        )?;
+        return Err(format!(
+            "recovery conflict: directory {} changed while recovery was being prepared; leaving it untouched",
+            destination.display()
+        ));
+    }
     if let Err(error) = fs::remove_dir(destination) {
         journal::append(
             journal::next_id()?,
