@@ -263,3 +263,20 @@ fn watcher_respects_restoration_of_a_deleted_directory() {
     );
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn first_scan_does_not_make_preexisting_empty_directories_undo_candidates() {
+    let (root, home, watched, config) = setup("initial-directory-baseline");
+    let existing = watched.join("already-here");
+    fs::create_dir(&existing).unwrap();
+    assert_success(&daemon_once(&home, &config), "initial baseline scan");
+
+    let undo = lifeline(&home, &["undo"]);
+    assert_success(&undo, "undo with only baseline directories");
+    assert!(
+        String::from_utf8_lossy(&undo.stdout).contains("Nothing to undo"),
+        "pre-existing directories must not be treated as user-created actions"
+    );
+    assert!(existing.is_dir());
+    let _ = fs::remove_dir_all(root);
+}
