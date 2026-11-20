@@ -71,10 +71,10 @@ fn handle_request<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result<(
     loop {
         match reader.read(&mut byte) {
             Ok(0) => return Err("client disconnected before sending a request".to_string()),
-            Ok(_) if byte[0] == b'\\n' => break,
+            Ok(_) if byte[0] == b'\n' => break,
             Ok(_) => {
                 if request.len() >= MAX_REQUEST_BYTES {
-                    writer.write_all(b"ERROR request-too-long\\n").ok();
+                    writer.write_all(b"ERROR request-too-long\n").ok();
                     return Err("rejected oversized request".to_string());
                 }
                 request.push(byte[0]);
@@ -85,11 +85,11 @@ fn handle_request<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result<(
 
     match request.as_slice() {
         b"PING" => writer
-            .write_all(b"PONG\\n")
+            .write_all(b"PONG\n")
             .map_err(|e| format!("cannot send response: {e}")),
         _ => {
             writer
-                .write_all(b"ERROR unsupported-request\\n")
+                .write_all(b"ERROR unsupported-request\n")
                 .map_err(|e| format!("cannot send response: {e}"))?;
             Err("rejected unsupported request".to_string())
         }
@@ -98,7 +98,7 @@ fn handle_request<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result<(
 
 fn handle_connection(mut stream: UnixStream) -> Result<(), String> {
     if !peer_is_root(&stream)? {
-        let _ = stream.write_all(b"DENIED\\n");
+        let _ = stream.write_all(b"DENIED\n");
         return Err("rejected connection from a non-root process".to_string());
     }
 
@@ -146,18 +146,18 @@ mod tests {
 
     #[test]
     fn answers_ping() {
-        let mut request = Cursor::new(b"PING\\n".to_vec());
+        let mut request = Cursor::new(b"PING\n".to_vec());
         let mut response = Vec::new();
         handle_request(&mut request, &mut response).unwrap();
-        assert_eq!(response, b"PONG\\n");
+        assert_eq!(response, b"PONG\n");
     }
 
     #[test]
     fn rejects_unknown_requests() {
-        let mut request = Cursor::new(b"RUN-SHELL\\n".to_vec());
+        let mut request = Cursor::new(b"RUN-SHELL\n".to_vec());
         let mut response = Vec::new();
         assert!(handle_request(&mut request, &mut response).is_err());
-        assert_eq!(response, b"ERROR unsupported-request\\n");
+        assert_eq!(response, b"ERROR unsupported-request\n");
     }
 
     #[test]
@@ -165,6 +165,6 @@ mod tests {
         let mut request = Cursor::new(vec![b'A'; MAX_REQUEST_BYTES + 1]);
         let mut response = Vec::new();
         assert!(handle_request(&mut request, &mut response).is_err());
-        assert_eq!(response, b"ERROR request-too-long\\n");
+        assert_eq!(response, b"ERROR request-too-long\n");
     }
 }
