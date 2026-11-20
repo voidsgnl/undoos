@@ -50,7 +50,7 @@ Kinds currently include:
 - `undo_abort` / `redo_abort`: records that an interrupted file operation had not changed the live file.
 - `move_undo_pending` / `move_redo_pending`: durable intents written before renaming a tracked file.
 - `move_undo_abort` / `move_redo_abort`: records that an interrupted move did not happen.
-- `dir_track` / `dir_deleted`: observed directory creation and deletion.
+- `dir_baseline`: a watched root or pre-existing directory was observed; this is state history, not an undo candidate.\n- `dir_track` / `dir_deleted`: observed directory creation and deletion.
 - `dir_undo_pending` / `dir_redo_pending`: durable directory-operation intents. Their snapshot field stores the expected device/inode identity.
 - `dir_restore` / `dir_redo`: completed directory undo and redo events.
 - `dir_undo_abort` / `dir_redo_abort`: directory operations that did not change the target.
