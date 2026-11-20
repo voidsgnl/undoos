@@ -228,6 +228,48 @@ pub fn pending_directory_redo() -> Result<Option<Entry>, String> {
         .find(|e| e.kind == "dir_restore" && !redone.contains(&e.id)))
 }
 
+/// Directory permission changes which are currently active.
+pub fn active_directory_modes() -> Result<Vec<Entry>, String> {
+    let entries = read_all()?;
+    let mut latest = std::collections::HashMap::<u64, u64>::new();
+    let mut redone = std::collections::HashSet::<u64>::new();
+    for entry in &entries {
+        if entry.kind == "dir_mode_restore" {
+            if let Ok(original_id) = entry.path.parse() {
+                latest.insert(original_id, entry.id);
+            }
+        } else if entry.kind == "dir_mode_redo" {
+            if let Ok(restore_id) = entry.path.parse() {
+                redone.insert(restore_id);
+            }
+        }
+    }
+    Ok(entries
+        .into_iter()
+        .filter(|entry| {
+            entry.kind == "dir_mode"
+                && match latest.get(&entry.id) {
+                    None => true,
+                    Some(restore_id) => redone.contains(restore_id),
+                }
+        })
+        .collect())
+}
+
+/// Most recent directory-mode undo which has not yet been redone.
+pub fn pending_directory_mode_redo() -> Result<Option<Entry>, String> {
+    let entries = read_all()?;
+    let redone: std::collections::HashSet<u64> = entries
+        .iter()
+        .filter(|entry| entry.kind == "dir_mode_redo")
+        .filter_map(|entry| entry.path.parse().ok())
+        .collect();
+    Ok(entries
+        .into_iter()
+        .rev()
+        .find(|entry| entry.kind == "dir_mode_restore" && !redone.contains(&entry.id)))
+}
+
 /// Move entries which have not yet been undone (or whose undo was redone).
 pub fn active_moves() -> Result<Vec<Entry>, String> {
     let entries = read_all()?;
