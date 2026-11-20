@@ -676,6 +676,7 @@ impl Watcher {
         // Replay the last known mode for each directory. A replacement inode
         // starts a fresh baseline rather than being mistaken for a chmod.
         let mut known = HashMap::<String, (String, u32)>::new();
+        let mut mode_events = HashMap::<u64, (String, String, u32, u32)>::new();
         for entry in &entries {
             match entry.kind.as_str() {
                 "dir_mode_baseline" => {
@@ -684,10 +685,38 @@ impl Watcher {
                     }
                 }
                 "dir_mode" => {
-                    if let Some((identity, _old_mode, new_mode)) =
+                    if let Some((identity, old_mode, new_mode)) =
                         parse_directory_mode_change(&entry.snapshot)
                     {
-                        known.insert(entry.path.clone(), (identity, new_mode));
+                        known.insert(entry.path.clone(), (identity.clone(), new_mode));
+                        mode_events.insert(
+                            entry.id,
+                            (entry.path.clone(), identity, old_mode, new_mode),
+                        );
+                    }
+                }
+                "dir_mode_restore" => {
+                    if let Ok(original_id) = entry.path.parse::<u64>() {
+                        if let Some((path, identity, old_mode, _)) =
+                            mode_events.get(&original_id)
+                        {
+                            known.insert(path.clone(), (identity.clone(), *old_mode));
+                        }
+                    }
+                }
+                "dir_mode_redo" => {
+                    if let Ok(restore_id) = entry.path.parse::<u64>() {
+                        if let Some(restore) = entries.iter().find(|candidate| {
+                            candidate.kind == "dir_mode_restore" && candidate.id == restore_id
+                        }) {
+                            if let Ok(original_id) = restore.path.parse::<u64>() {
+                                if let Some((path, identity, _, new_mode)) =
+                                    mode_events.get(&original_id)
+                                {
+                                    known.insert(path.clone(), (identity.clone(), *new_mode));
+                                }
+                            }
+                        }
                     }
                 }
                 _ => {}
