@@ -267,11 +267,9 @@ fn change_directory_mode(
 
     fs::set_permissions(path, fs::Permissions::from_mode(desired_mode))
         .map_err(|error| format!("cannot change permissions on {}: {error}", path.display()))?;
-    OpenOptions::new()
-        .read(true)
-        .open(path)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| format!("cannot sync directory permissions for {}: {error}", path.display()))?;
+    // Sync the containing directory without reopening the target after chmod:
+    // the new mode may intentionally remove read permission (for example 0000).
+    sync_parent(path)?;
     test_pause(if pending_kind == "dir_mode_undo_pending" {
         "dir_mode_undo_after_chmod"
     } else {
