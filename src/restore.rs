@@ -322,7 +322,7 @@ fn remove_directory_transaction(
 ) -> Result<(), String> {
     let destination = Path::new(&original.path);
     let identity = directory_identity(destination)?;
-    if expected_identity.is_some_and(|expected| !expected.is_empty() && expected != identity) {
+    if expected_identity.is_some_and(|expected| !expected.is_empty() && expected != identity.as_str()) {
         return Err(format!(
             "recovery conflict: {} is not the directory Lifeline recorded; leaving it untouched",
             destination.display()
@@ -370,7 +370,7 @@ fn undo_directory_entry(entry: &Entry) -> Result<(), String> {
             "dir_undo_pending",
             "dir_restore",
             entry.id,
-            Some(&entry.snapshot),
+            Some(entry.snapshot.as_str()),
         ),
         "dir_deleted" => create_directory_transaction(
             entry,
@@ -399,7 +399,7 @@ fn redo_directory_entry(restore: &Entry) -> Result<(), String> {
             "dir_redo_pending",
             "dir_redo",
             restore.id,
-            Some(&restore.snapshot),
+            Some(restore.snapshot.as_str()),
         ),
         "dir_deleted" => remove_directory_transaction(
             &original,
