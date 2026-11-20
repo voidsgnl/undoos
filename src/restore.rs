@@ -438,7 +438,7 @@ pub fn reconcile_pending() -> Result<(), String> {
         let reference_id: u64 = pending.path.parse().map_err(|_| {
             format!("invalid directory transaction reference: {}", pending.path)
         })?;
-        let original = if is_undo {
+        let original = (if is_undo {
             entries.iter().find(|entry| {
                 (entry.kind == "dir_track" || entry.kind == "dir_deleted")
                     && entry.id == reference_id
@@ -457,10 +457,13 @@ pub fn reconcile_pending() -> Result<(), String> {
                 (entry.kind == "dir_track" || entry.kind == "dir_deleted")
                     && entry.id == original_id
             })
-        }.ok_or_else(|| format!(
-            "directory transaction #{} references missing directory history",
-            pending.id
-        ))?;
+        })
+        .ok_or_else(|| {
+            format!(
+                "directory transaction #{} references missing directory history",
+                pending.id
+            )
+        })?;
 
         let creates_directory = if is_undo {
             original.kind == "dir_deleted"
