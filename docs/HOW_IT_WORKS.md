@@ -93,6 +93,14 @@ To rewind to entry `N`, Lifeline selects active file snapshots, moves, directory
 
 UndoOS is being developed as a Linux-first recovery layer with automatic background monitoring and a deliberately small command-line interface. The current implementation is limited to configured folders; system-wide coverage is a longer-term goal, not a current capability. Package changes, selected settings and dotfiles, ownership, ACLs, extended attributes, and service changes are future recovery areas that require their own safe capture and conflict-handling logic. A tray application, optional dashboard, and plain-language monthly review are also later-stage ideas. See [the roadmap](ROADMAP.md) for the agreed direction and milestone order.
 
+## System-wide direction
+
+The current watcher is only the first change source. The long-term design is a single timeline fed by domain-specific observers for files, packages, services, and supported settings. Those sources must capture prior state, verify the result, define safe inverse operations, and reconcile interrupted work. A log entry by itself is not enough to make a change reversible.
+
+System-owned changes will require a separate, narrowly privileged service. The CLI should remain unprivileged and request typed operations through a protected local interface; it must not run as root or pass arbitrary commands to a privileged helper. User and system recovery data must have separate ownership and access controls.
+
+Do not solve system-wide coverage by simply watching every path under `/`. Virtual filesystems, transient mounts, runtime state, secrets, and package-managed files need explicit handling. See [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) for the target design, privilege boundaries, event contract, and staged implementation plan.
+
 ## Running the tests
 
 ```sh
