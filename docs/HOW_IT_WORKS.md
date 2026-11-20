@@ -29,7 +29,7 @@ The journal is append-only during normal operation. Undoing does not delete the 
 The first successful scan records each watched root and its existing directories as non-undoable `dir_baseline` entries. This prevents pre-existing folders from being treated as user-created actions.
 
 Later directory presence transitions are recorded in the same append-only journal:
-- `dir_track`: an empty directory was created or a previously deleted directory reappeared.
+- `dir_track`: a directory was created or a previously deleted directory reappeared after the initial baseline scan.
 - `dir_deleted`: a previously tracked directory is now missing.
 
 Creation events are recorded parent-first; deletion events are recorded deepest-first. This lets undo recreate deleted parents before children, and redo remove children before parents.
