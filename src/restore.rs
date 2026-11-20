@@ -586,6 +586,68 @@ fn redo_directory_entry(restore: &Entry) -> Result<(), String> {
 pub fn reconcile_pending() -> Result<(), String> {
     let entries = journal::read_all()?;
 
+    // Reconcile chmod transactions from their durable intent records.
+    for pending in entries.iter().filter(|entry| {
+        entry.kind == "dir_mode_undo_pending" || entry.kind == "dir_mode_redo_pending"
+    }) {
+        let is_undo = pending.kind == "dir_mode_undo_pending";
+        let completed_kind = if is_undo { "dir_mode_restore" } else { "dir_mode_redo" };
+        let aborted_kind = if is_undo { "dir_mode_undo_abort" } else { "dir_mode_redo_abort" };
+        if entries.iter().any(|entry| {
+            entry.id > pending.id
+                && (entry.kind == completed_kind || entry.kind == aborted_kind)
+                && entry.path == pending.path
+        }) {
+            continue;
+        }
+
+        let reference_id: u64 = pending.path.parse().map_err(|_| {
+            format!("invalid directory permission transaction reference: {}", pending.path)
+        })?;
+        let original_id = if is_undo {
+            reference_id
+        } else {
+            let restore = entries.iter().find(|entry| {
+                entry.kind == "dir_mode_restore" && entry.id == reference_id
+            }).ok_or_else(|| format!("directory permission redo #{} has no matching restore", pending.id))?;
+            restore.path.parse().map_err(|_| {
+                format!("invalid original directory permission reference: {}", restore.path)
+            })?
+        };
+        let original = entries.iter().find(|entry| {
+            entry.kind == "dir_mode" && entry.id == original_id
+        }).ok_or_else(|| format!("directory permission event #{original_id} is missing"))?;
+        let (identity, expected_mode, desired_mode) = parse_mode_transaction(&pending.snapshot)
+            .ok_or_else(|| format!("invalid pending directory permission transaction #{}", pending.id))?;
+        let (live_identity, live_mode) = directory_mode_state(Path::new(&original.path))?;
+        if live_identity != identity {
+            return Err(format!(
+                "unfinished permission recovery for {} conflicts with a replacement directory; leaving it untouched",
+                original.path
+            ));
+        }
+        if live_mode == desired_mode {
+            journal::append(
+                journal::next_id()?,
+                completed_kind,
+                &reference_id.to_string(),
+                &pending.snapshot,
+            )?;
+        } else if live_mode == expected_mode {
+            journal::append(
+                journal::next_id()?,
+                aborted_kind,
+                &reference_id.to_string(),
+                "",
+            )?;
+        } else {
+            return Err(format!(
+                "unfinished permission recovery for {} found unexpected mode {:04o}; leaving it untouched",
+                original.path, live_mode
+            ));
+        }
+    }
+
     // Directory operations use staged sibling directories for creation. The
     // staged directory's device/inode identity is journaled before its atomic
     // rename, so recovery never adopts an unrelated directory at the target.
