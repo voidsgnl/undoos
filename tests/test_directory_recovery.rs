@@ -52,6 +52,43 @@ fn assert_success(output: &std::process::Output, label: &str) {
 }
 
 #[test]
+fn watcher_records_directory_permission_mode_changes_once() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (root, home, watched, config) = setup("directory-mode-detection");
+    let directory = watched.join("permissions");
+    fs::create_dir(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_success(&daemon_once(&home, &config), "initial permission baseline scan");
+
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o750)).unwrap();
+    assert_success(&daemon_once(&home, &config), "permission change scan");
+
+    let journal = fs::read_to_string(home.join("journal.tsv")).unwrap();
+    let changes: Vec<&str> = journal
+        .lines()
+        .filter(|line| line.split('\t').nth(2) == Some("dir_mode"))
+        .collect();
+    assert_eq!(changes.len(), 1, "one permission change should be recorded");
+    assert!(
+        changes[0].ends_with(":0700:0750"),
+        "journal should retain both the old and new permission modes"
+    );
+
+    assert_success(&daemon_once(&home, &config), "unchanged permission scan");
+    let journal_after = fs::read_to_string(home.join("journal.tsv")).unwrap();
+    assert_eq!(
+        journal_after
+            .lines()
+            .filter(|line| line.split('\t').nth(2) == Some("dir_mode"))
+            .count(),
+        1,
+        "an unchanged directory mode must not create duplicate events"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn undo_and_redo_deleted_empty_directory() {
     let (root, home, watched, config) = setup("delete-empty");
     let directory = watched.join("empty");
