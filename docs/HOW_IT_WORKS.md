@@ -38,7 +38,7 @@ Directory events participate in the same `lifeline undo`, `redo`, `back`, and `t
 
 Directory creation is staged as a sibling directory. Its device/inode identity is recorded in a durable pending event before an atomic no-overwrite rename installs it at the target path. If Lifeline stops during the operation, the next CLI command compares the target and staging identities before completing or aborting. It does not adopt an unrelated directory. Directory removal uses `rmdir`, records the directory identity before the operation, and refuses non-empty directories. An ambiguous interrupted operation stops for attention rather than guessing.
 
-Unreadable ancestors and unavailable watched roots must not be interpreted as directory deletions.
+This records directory presence, not directory metadata: permissions, ownership, ACLs, and extended attributes are not restored yet. Unreadable ancestors and unavailable watched roots must not be interpreted as directory deletions.
 
 ## Journal format
 
