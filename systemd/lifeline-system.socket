@@ -1,0 +1,14 @@
+[Unit]
+Description=UndoOS privileged control socket
+
+[Socket]
+ListenStream=/run/lifeline/control.sock
+SocketUser=root
+SocketGroup=root
+SocketMode=0600
+DirectoryMode=0700
+Accept=no
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
