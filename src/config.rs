@@ -35,8 +35,8 @@ impl Default for Config {
 
 impl Config {
     pub fn load(path: &Path) -> Result<Config, String> {
-        let text = fs::read_to_string(path)
-            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        let text =
+            fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
         Config::parse(&text)
     }
 
@@ -70,7 +70,9 @@ impl Config {
                 ("watch", "settle_ms") => cfg.settle_ms = parse_num(value).map_err(bad)?,
                 // Older configs may still contain this option. It is ignored:
                 // every distinct observed version is eligible for a recovery point.
-                ("watch", "min_gap_s") => { let _ = parse_num(value).map_err(bad)?; }
+                ("watch", "min_gap_s") => {
+                    let _ = parse_num(value).map_err(bad)?;
+                }
                 ("ignore", "patterns") => cfg.ignore = parse_array(value).map_err(bad)?,
                 ("storage", "max_file_mb") => cfg.max_file_mb = parse_num(value).map_err(bad)?,
                 _ => {}
@@ -98,7 +100,9 @@ fn strip_comment(line: &str) -> &str {
 }
 
 fn parse_num(value: &str) -> Result<u64, String> {
-    value.parse().map_err(|_| format!("'{value}' is not a number"))
+    value
+        .parse()
+        .map_err(|_| format!("'{value}' is not a number"))
 }
 
 fn parse_array(value: &str) -> Result<Vec<String>, String> {
@@ -167,7 +171,10 @@ max_file_mb = 5
 "#,
         )
         .unwrap();
-        assert_eq!(cfg.paths, vec![PathBuf::from("/tmp/a"), PathBuf::from("/tmp/b")]);
+        assert_eq!(
+            cfg.paths,
+            vec![PathBuf::from("/tmp/a"), PathBuf::from("/tmp/b")]
+        );
         assert_eq!(cfg.poll_ms, 500);
         assert_eq!(cfg.ignore, vec!["*.tmp".to_string()]);
         assert_eq!(cfg.max_file_mb, 5);

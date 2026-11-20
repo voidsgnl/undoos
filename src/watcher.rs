@@ -68,7 +68,10 @@ fn file_stamp(meta: &fs::Metadata) -> FileStamp {
     }
     #[cfg(not(unix))]
     {
-        FileStamp { modified: meta.modified().unwrap_or(UNIX_EPOCH), size: meta.len() }
+        FileStamp {
+            modified: meta.modified().unwrap_or(UNIX_EPOCH),
+            size: meta.len(),
+        }
     }
 }
 
@@ -124,10 +127,14 @@ impl Watcher {
         self.detect_moves(&seen, &found, &incomplete, &mut events);
         for path in found {
             match fs::symlink_metadata(&path) {
-                Ok(meta) => if let Err(err) = self.check_file(&path, &meta, &mut events) {
-                    events.push(Event::error(&path, &err));
-                },
-                Err(err) => events.push(Event::error(&path, &format!("cannot inspect entry: {err}"))),
+                Ok(meta) => {
+                    if let Err(err) = self.check_file(&path, &meta, &mut events) {
+                        events.push(Event::error(&path, &err));
+                    }
+                }
+                Err(err) => {
+                    events.push(Event::error(&path, &format!("cannot inspect entry: {err}")))
+                }
             }
         }
         self.find_deleted(&seen, &incomplete, &mut events);
@@ -146,7 +153,10 @@ impl Watcher {
             Ok(r) => r,
             Err(err) => {
                 incomplete.insert(dir.to_path_buf());
-                events.push(Event::error(dir, &format!("cannot inspect directory: {err}")));
+                events.push(Event::error(
+                    dir,
+                    &format!("cannot inspect directory: {err}"),
+                ));
                 return;
             }
         };
@@ -155,7 +165,10 @@ impl Watcher {
                 Ok(entry) => entry,
                 Err(err) => {
                     incomplete.insert(dir.to_path_buf());
-                    events.push(Event::error(dir, &format!("cannot read directory entry: {err}")));
+                    events.push(Event::error(
+                        dir,
+                        &format!("cannot read directory entry: {err}"),
+                    ));
                     continue;
                 }
             };
@@ -200,7 +213,9 @@ impl Watcher {
         {
             let mut destinations = HashMap::<(u64, u64, i64, u32), Vec<PathBuf>>::new();
             for path in found {
-                if baseline::exists(path) { continue; }
+                if baseline::exists(path) {
+                    continue;
+                }
                 if let Some(identity) = baseline::live_identity(path) {
                     destinations.entry(identity).or_default().push(path.clone());
                 }
@@ -209,16 +224,23 @@ impl Watcher {
             let old_paths = match baseline::list_all() {
                 Ok(paths) => paths,
                 Err(err) => {
-                    events.push(Event { kind: "error", text: err });
+                    events.push(Event {
+                        kind: "error",
+                        text: err,
+                    });
                     return;
                 }
             };
             let mut sources = HashMap::<(u64, u64, i64, u32), Vec<PathBuf>>::new();
             for text in old_paths {
                 let old = PathBuf::from(text);
-                if seen.contains(&old) || old.exists()
+                if seen.contains(&old)
+                    || old.exists()
                     || incomplete.iter().any(|dir| old.starts_with(dir))
-                    || !self.roots.iter().any(|root| root.exists() && old.starts_with(root))
+                    || !self
+                        .roots
+                        .iter()
+                        .any(|root| root.exists() && old.starts_with(root))
                 {
                     continue;
                 }
@@ -241,7 +263,10 @@ impl Watcher {
                 };
                 let id = match journal::next_id() {
                     Ok(id) => id,
-                    Err(err) => { events.push(Event::error(&new_group, &err)); continue; }
+                    Err(err) => {
+                        events.push(Event::error(&new_group, &err));
+                        continue;
+                    }
                 };
                 if let Err(err) = baseline::relocate(&old, &new_group) {
                     events.push(Event::error(&new_group, &err));
@@ -263,7 +288,9 @@ impl Watcher {
             }
         }
         #[cfg(not(target_os = "linux"))]
-        { let _ = (seen, found, incomplete, events); }
+        {
+            let _ = (seen, found, incomplete, events);
+        }
     }
 
     fn check_file(

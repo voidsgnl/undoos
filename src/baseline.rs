@@ -10,8 +10,8 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::journal;
 
@@ -58,15 +58,29 @@ pub fn live_identity(path: &Path) -> Option<(u64, u64, i64, u32)> {
     let name = CString::new(path.as_os_str().as_bytes()).ok()?;
     let mut stat: libc::statx = unsafe { std::mem::zeroed() };
     let result = unsafe {
-        libc::statx(libc::AT_FDCWD, name.as_ptr(), libc::AT_SYMLINK_NOFOLLOW,
-            libc::STATX_BTIME, &mut stat)
+        libc::statx(
+            libc::AT_FDCWD,
+            name.as_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+            libc::STATX_BTIME,
+            &mut stat,
+        )
     };
-    if result != 0 || stat.stx_mask & libc::STATX_BTIME == 0 { return None; }
-    Some((meta.dev(), meta.ino(), stat.stx_btime.tv_sec, stat.stx_btime.tv_nsec))
+    if result != 0 || stat.stx_mask & libc::STATX_BTIME == 0 {
+        return None;
+    }
+    Some((
+        meta.dev(),
+        meta.ino(),
+        stat.stx_btime.tv_sec,
+        stat.stx_btime.tv_nsec,
+    ))
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn live_identity(_path: &Path) -> Option<(u64, u64, i64, u32)> { None }
+pub fn live_identity(_path: &Path) -> Option<(u64, u64, i64, u32)> {
+    None
+}
 
 /// Read the identity recorded when this baseline was last refreshed.
 pub fn identity(path: &Path) -> Option<(u64, u64, i64, u32)> {
@@ -131,54 +145,75 @@ fn temp_path(destination: &Path) -> PathBuf {
 /// Copy a changing source without accepting a torn or mixed-version read.
 fn copy_stable(source: &Path, destination: &Path) -> Result<(), String> {
     for attempt in 0..3 {
-        let mut input = File::open(source)
-            .map_err(|e| format!("cannot open {}: {e}", source.display()))?;
-        let before = input.metadata()
+        let mut input =
+            File::open(source).map_err(|e| format!("cannot open {}: {e}", source.display()))?;
+        let before = input
+            .metadata()
             .map_err(|e| format!("cannot inspect {}: {e}", source.display()))?;
         let temporary = temp_path(destination);
         let result = (|| -> io::Result<()> {
-            let mut output = OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+            let mut output = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)?;
             io::copy(&mut input, &mut output)?;
             output.sync_all()?;
             let after = fs::metadata(source)?;
             let opened_after = input.metadata()?;
             if !same_version(&before, &after) || !same_version(&before, &opened_after) {
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "source changed while being copied"));
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "source changed while being copied",
+                ));
             }
             fs::rename(&temporary, destination)?;
             Ok(())
         })();
-        if result.is_ok() { return Ok(()); }
+        if result.is_ok() {
+            return Ok(());
+        }
         let _ = fs::remove_file(&temporary);
         let err = result.unwrap_err();
         if err.kind() != io::ErrorKind::Interrupted || attempt == 2 {
-            return Err(format!("cannot create stable baseline for {}: {err}", source.display()));
+            return Err(format!(
+                "cannot create stable baseline for {}: {err}",
+                source.display()
+            ));
         }
     }
     unreachable!()
 }
 
 fn same_version(a: &fs::Metadata, b: &fs::Metadata) -> bool {
-    if a.len() != b.len() || a.modified().ok() != b.modified().ok() { return false; }
+    if a.len() != b.len() || a.modified().ok() != b.modified().ok() {
+        return false;
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
         a.dev() == b.dev() && a.ino() == b.ino()
     }
     #[cfg(not(unix))]
-    { true }
+    {
+        true
+    }
 }
 
 fn atomic_write(destination: &Path, contents: &[u8]) -> io::Result<()> {
     let temporary = temp_path(destination);
     let result = (|| {
-        let mut file = OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
         use std::io::Write;
         file.write_all(contents)?;
         file.sync_all()?;
         fs::rename(&temporary, destination)
     })();
-    if result.is_err() { let _ = fs::remove_file(&temporary); }
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
     result
 }
 
@@ -221,7 +256,6 @@ pub fn list_all() -> Result<Vec<String>, String> {
     Ok(paths)
 }
 
-
 /// Move a baseline's storage key when the underlying file is renamed.
 pub fn relocate(old: &Path, new: &Path) -> Result<(), String> {
     let old_file = file_for(old);
@@ -233,15 +267,24 @@ pub fn relocate(old: &Path, new: &Path) -> Result<(), String> {
     let old_has = old_file.exists();
     let new_has = new_file.exists();
     if old_has && new_has {
-        return Err(format!("both old and new recovery baselines exist for {} and {}", old.display(), new.display()));
+        return Err(format!(
+            "both old and new recovery baselines exist for {} and {}",
+            old.display(),
+            new.display()
+        ));
     }
     if !old_has && !new_has {
-        return Err(format!("recovery baseline is missing for {}", old.display()));
+        return Err(format!(
+            "recovery baseline is missing for {}",
+            old.display()
+        ));
     }
 
     // If the process stopped after moving the baseline data but before writing
     // its sidecars, finish the metadata update instead of treating it as lost.
-    let saved_identity = fs::read(&old_identity).or_else(|_| fs::read(&new_identity)).ok();
+    let saved_identity = fs::read(&old_identity)
+        .or_else(|_| fs::read(&new_identity))
+        .ok();
     if old_has {
         fs::rename(&old_file, &new_file)
             .map_err(|e| format!("cannot relocate baseline for {}: {e}", old.display()))?;
@@ -258,7 +301,9 @@ pub fn relocate(old: &Path, new: &Path) -> Result<(), String> {
     let _ = fs::remove_file(old_identity);
     // Make the baseline rename and sidecar changes durable before the move
     // transaction is allowed to append its completion event.
-    OpenOptions::new().read(true).open(dir())
+    OpenOptions::new()
+        .read(true)
+        .open(dir())
         .and_then(|directory| directory.sync_all())
         .map_err(|e| format!("cannot sync baseline directory: {e}"))?;
     Ok(())

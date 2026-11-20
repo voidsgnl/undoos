@@ -1,14 +1,7 @@
 //! lifeline-daemon: watches folders and quietly saves the old version of
 //! anything that changes or disappears. Get it back with `lifeline undo`.
 
-use std::{
-    env,
-    path::PathBuf,
-    process,
-    sync::mpsc,
-    thread,
-    time::Duration,
-};
+use std::{env, path::PathBuf, process, sync::mpsc, thread, time::Duration};
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher as NotifyWatcher};
 use undoos::config::Config;
@@ -120,8 +113,10 @@ fn main() {
     if watched_roots == 0 {
         eprintln!("lifeline-daemon: no event watches active; using periodic scans only");
     } else {
-        println!("lifeline-daemon: event monitoring active; periodic reconciliation every {} ms",
-            cfg.poll_ms);
+        println!(
+            "lifeline-daemon: event monitoring active; periodic reconciliation every {} ms",
+            cfg.poll_ms
+        );
     }
 
     // Take an initial baseline after registering watches so changes occurring
