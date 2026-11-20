@@ -27,7 +27,6 @@ fn test_pause(point: &str) {
     }
 }
 
-
 fn temporary_sibling(destination: &Path) -> PathBuf {
     let id = RESTORE_TEMP_ID.fetch_add(1, Ordering::Relaxed);
     let mut name = destination.file_name().unwrap_or_default().to_os_string();
