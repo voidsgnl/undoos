@@ -32,11 +32,11 @@ The current prototype provides:
 
 This is not yet whole-system protection. The current watcher tracks regular files in configured folders; it does not automatically monitor every system location or every type of system change.
 
-## Next milestone: directory structure recovery
+## Completed milestone: directory structure recovery
 
-The next focused capability is to preserve empty directories and empty subdirectories, not just the files they contain.
+This milestone extended file recovery to preserve empty directories and empty subdirectories, not just the files they contain.
 
-The milestone should:
+The completed capability now:
 
 1. Detect directory creation and deletion within configured watched roots.
 2. Preserve empty directories as well as directory structure around tracked files.
