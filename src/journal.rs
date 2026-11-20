@@ -174,14 +174,23 @@ pub fn active_directories() -> Result<Vec<Entry>, String> {
     let entries = read_all()?;
     let mut latest = std::collections::HashMap::<u64, u64>::new();
     let mut redone = std::collections::HashSet::<u64>::new();
+    let mut redo_identities = std::collections::HashMap::<u64, String>::new();
     for e in &entries {
         if e.kind == "dir_restore" {
             if let Ok(id) = e.path.parse() {
                 latest.insert(id, e.id);
             }
         } else if e.kind == "dir_redo" {
-            if let Ok(id) = e.path.parse() {
-                redone.insert(id);
+            if let Ok(restore_id) = e.path.parse() {
+                redone.insert(restore_id);
+                if let Some(restore) = entries
+                    .iter()
+                    .find(|candidate| candidate.kind == "dir_restore" && candidate.id == restore_id)
+                {
+                    if let Ok(original_id) = restore.path.parse() {
+                        redo_identities.insert(original_id, e.snapshot.clone());
+                    }
+                }
             }
         }
     }
@@ -193,6 +202,14 @@ pub fn active_directories() -> Result<Vec<Entry>, String> {
                     None => true,
                     Some(r) => redone.contains(r),
                 }
+        })
+        .map(|mut entry| {
+            if let Some(identity) = redo_identities.get(&entry.id) {
+                if !identity.is_empty() {
+                    entry.snapshot = identity.clone();
+                }
+            }
+            entry
         })
         .collect())
 }
