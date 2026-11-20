@@ -27,8 +27,8 @@ The current prototype provides:
 - File baselines and saved copies for observed file changes and deletions.
 - `lifeline log`, `undo`, and `redo`, plus manual snapshots and named checkpoints.
 - An append-only journal for recovery history.
-- Conflict checks and reconciliation for interrupted file undo/redo and tracked file moves.
-- Linux file-identity support for recognizing certain same-filesystem renames.
+- Conflict checks and reconciliation for interrupted file undo/redo, tracked file moves, and empty-directory operations.
+- Linux file-identity support for recognizing certain same-filesystem renames.\n- Independent empty-directory undo/redo, including crash reconciliation and non-empty-directory protection.
 
 This is not yet whole-system protection. The current watcher tracks regular files in configured folders; it does not automatically monitor every system location or every type of system change.
 
@@ -46,7 +46,7 @@ The completed capability now:
 6. Preserve the existing simple CLI and append-only history model.
 7. Include tests for empty directories, nested empty directories, populated trees, conflicts, and daemon restarts.
 
-Directory recovery should be introduced in small steps. A directory tree should not be described as one atomic transaction until the implementation can actually guarantee that behavior.
+A directory tree is not one atomic transaction: its individual directory and file events are reversed in timeline order.
 
 ## Later recovery coverage
 
