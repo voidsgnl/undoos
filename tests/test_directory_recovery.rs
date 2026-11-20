@@ -280,3 +280,45 @@ fn first_scan_does_not_make_preexisting_empty_directories_undo_candidates() {
     assert!(existing.is_dir());
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn undo_refuses_to_remove_an_unrelated_empty_directory_at_the_same_path() {
+    let (root, home, watched, config) = setup("identity-conflict-undo");
+    assert_success(&daemon_once(&home, &config), "initial baseline scan");
+    let directory = watched.join("empty");
+    fs::create_dir(&directory).unwrap();
+    assert_success(&daemon_once(&home, &config), "creation scan");
+
+    fs::remove_dir(&directory).unwrap();
+    fs::create_dir(&directory).unwrap();
+
+    let undo = lifeline(&home, &["undo"]);
+    assert!(
+        !undo.status.success(),
+        "undo must not remove a replacement directory"
+    );
+    assert!(directory.is_dir());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn redo_refuses_to_remove_a_replacement_of_a_restored_directory() {
+    let (root, home, watched, config) = setup("identity-conflict-redo");
+    let directory = watched.join("empty");
+    fs::create_dir(&directory).unwrap();
+    assert_success(&daemon_once(&home, &config), "initial baseline scan");
+    fs::remove_dir(&directory).unwrap();
+    assert_success(&daemon_once(&home, &config), "deletion scan");
+
+    assert_success(&lifeline(&home, &["undo"]), "restore deleted directory");
+    fs::remove_dir(&directory).unwrap();
+    fs::create_dir(&directory).unwrap();
+
+    let redo = lifeline(&home, &["redo"]);
+    assert!(
+        !redo.status.success(),
+        "redo must not remove a replacement directory"
+    );
+    assert!(directory.is_dir());
+    let _ = fs::remove_dir_all(root);
+}
