@@ -109,7 +109,10 @@ fn handle_connection(mut stream: UnixStream) -> Result<(), String> {
         .set_write_timeout(Some(Duration::from_secs(2)))
         .map_err(|e| format!("cannot set response timeout: {e}"))?;
 
-    handle_request(&mut stream, &mut stream)
+    let mut reader = stream
+        .try_clone()
+        .map_err(|e| format!("cannot clone client socket: {e}"))?;
+    handle_request(&mut reader, &mut stream)
 }
 
 fn main() {
