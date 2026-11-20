@@ -157,3 +157,135 @@ fn sigkill_after_redo_apply_finishes_transaction_on_next_command() {
     assert!(String::from_utf8_lossy(&recovered.stdout).contains("redone"));
     fs::remove_dir_all(root).unwrap();
 }
+
+
+fn daemon_once(home: &Path, config: &Path) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_lifeline-daemon"))
+        .args(["--config", config.to_str().unwrap(), "--once"])
+        .env("LIFELINE_HOME", home)
+        .output()
+        .expect("could not run lifeline-daemon")
+}
+
+fn prepare_move(name: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+    let root = root(name);
+    let home = root.join("lifeline-home");
+    let watched = root.join("watched");
+    fs::create_dir_all(&watched).unwrap();
+    let config = root.join("config.toml");
+    fs::write(
+        &config,
+        format!(
+            "[watch]\\npaths = [\\"{}\\"]\\nsettle_ms = 0\\n",
+            watched.display()
+        ),
+    )
+    .unwrap();
+
+    let old = watched.join("old.txt");
+    let new = watched.join("new.txt");
+    fs::write(&old, "move crash payload").unwrap();
+    let first_scan = daemon_once(&home, &config);
+    assert!(
+        first_scan.status.success(),
+        "initial scan failed: {}",
+        String::from_utf8_lossy(&first_scan.stderr)
+    );
+    fs::rename(&old, &new).unwrap();
+    let second_scan = daemon_once(&home, &config);
+    assert!(
+        second_scan.status.success(),
+        "move scan failed: {}",
+        String::from_utf8_lossy(&second_scan.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&second_scan.stdout).contains("moved"),
+        "daemon did not record move: {}",
+        String::from_utf8_lossy(&second_scan.stdout)
+    );
+    (root, home, old, new)
+}
+
+fn prepare_move_redo(name: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+    let (root, home, old, new) = prepare_move(name);
+    let undone = lifeline(&home, &["undo"]);
+    assert!(
+        undone.status.success(),
+        "move undo failed: {}",
+        String::from_utf8_lossy(&undone.stderr)
+    );
+    assert!(old.exists() && !new.exists());
+    (root, home, old, new)
+}
+
+#[test]
+fn sigkill_after_move_undo_intent_aborts_without_renaming() {
+    let (root, home, old, new) = prepare_move("move-undo-before-rename");
+    let marker = root.join("paused");
+    let child = start_paused(&home, &["undo"], "move_undo_after_intent", &marker);
+    kill_at_pause(child, &marker);
+
+    let recovered = lifeline(&home, &["log"]);
+    assert!(
+        recovered.status.success(),
+        "reconciliation failed: {}",
+        String::from_utf8_lossy(&recovered.stderr)
+    );
+    assert!(new.exists() && !old.exists());
+    assert!(String::from_utf8_lossy(&recovered.stdout).contains("move_undo_abort"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn sigkill_after_move_undo_rename_completes_transaction() {
+    let (root, home, old, new) = prepare_move("move-undo-after-rename");
+    let marker = root.join("paused");
+    let child = start_paused(&home, &["undo"], "move_undo_after_rename", &marker);
+    kill_at_pause(child, &marker);
+
+    let recovered = lifeline(&home, &["log"]);
+    assert!(
+        recovered.status.success(),
+        "reconciliation failed: {}",
+        String::from_utf8_lossy(&recovered.stderr)
+    );
+    assert!(old.exists() && !new.exists());
+    assert!(String::from_utf8_lossy(&recovered.stdout).contains("restored"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn sigkill_after_move_redo_intent_aborts_without_renaming() {
+    let (root, home, old, new) = prepare_move_redo("move-redo-before-rename");
+    let marker = root.join("paused");
+    let child = start_paused(&home, &["redo"], "move_redo_after_intent", &marker);
+    kill_at_pause(child, &marker);
+
+    let recovered = lifeline(&home, &["log"]);
+    assert!(
+        recovered.status.success(),
+        "reconciliation failed: {}",
+        String::from_utf8_lossy(&recovered.stderr)
+    );
+    assert!(old.exists() && !new.exists());
+    assert!(String::from_utf8_lossy(&recovered.stdout).contains("move_redo_abort"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn sigkill_after_move_redo_rename_completes_transaction() {
+    let (root, home, old, new) = prepare_move_redo("move-redo-after-rename");
+    let marker = root.join("paused");
+    let child = start_paused(&home, &["redo"], "move_redo_after_rename", &marker);
+    kill_at_pause(child, &marker);
+
+    let recovered = lifeline(&home, &["log"]);
+    assert!(
+        recovered.status.success(),
+        "reconciliation failed: {}",
+        String::from_utf8_lossy(&recovered.stderr)
+    );
+    assert!(new.exists() && !old.exists());
+    assert!(String::from_utf8_lossy(&recovered.stdout).contains("redone"));
+    fs::remove_dir_all(root).unwrap();
+}
