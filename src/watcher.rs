@@ -416,12 +416,17 @@ impl Watcher {
         };
 
         let mut pending_directory_paths = HashSet::<PathBuf>::new();
-        for pending in entries.iter().filter(|entry| {
-            entry.kind == "dir_undo_pending" || entry.kind == "dir_redo_pending"
-        }) {
+        for pending in entries
+            .iter()
+            .filter(|entry| entry.kind == "dir_undo_pending" || entry.kind == "dir_redo_pending")
+        {
             let is_undo = pending.kind == "dir_undo_pending";
             let completed_kind = if is_undo { "dir_restore" } else { "dir_redo" };
-            let aborted_kind = if is_undo { "dir_undo_abort" } else { "dir_redo_abort" };
+            let aborted_kind = if is_undo {
+                "dir_undo_abort"
+            } else {
+                "dir_redo_abort"
+            };
             let resolved = entries.iter().any(|entry| {
                 entry.id > pending.id
                     && (entry.kind == completed_kind || entry.kind == aborted_kind)
@@ -436,9 +441,10 @@ impl Watcher {
             let original_id = if is_undo {
                 reference_id
             } else {
-                let Some(restore) = entries.iter().find(|entry| {
-                    entry.kind == "dir_restore" && entry.id == reference_id
-                }) else {
+                let Some(restore) = entries
+                    .iter()
+                    .find(|entry| entry.kind == "dir_restore" && entry.id == reference_id)
+                else {
                     continue;
                 };
                 let Ok(original_id) = restore.path.parse::<u64>() else {
@@ -524,8 +530,7 @@ impl Watcher {
                 }
             }
         }
-        let mut moved_directories: Vec<PathBuf> =
-            moved_directory_set.iter().cloned().collect();
+        let mut moved_directories: Vec<PathBuf> = moved_directory_set.iter().cloned().collect();
         moved_directories.sort_by_key(|path| (path.components().count(), path.clone()));
         for path in moved_directories {
             let Some(text) = path.to_str() else {
@@ -605,14 +610,17 @@ impl Watcher {
                     continue;
                 }
                 Err(err) => {
-                    events.push(Event::error(&path, &format!("cannot inspect directory: {err}")));
+                    events.push(Event::error(
+                        &path,
+                        &format!("cannot inspect directory: {err}"),
+                    ));
                     continue;
                 }
             };
             let identity = format!("{}:{}", metadata.dev(), metadata.ino());
-            match journal::next_id().and_then(|id| {
-                journal::append(id, "dir_track", text, &identity).map(|_| id)
-            }) {
+            match journal::next_id()
+                .and_then(|id| journal::append(id, "dir_track", text, &identity).map(|_| id))
+            {
                 Ok(_) => events.push(Event::new("dir-tracking", &path)),
                 Err(err) => events.push(Event::error(&path, &err)),
             }
@@ -689,17 +697,13 @@ impl Watcher {
                         parse_directory_mode_change(&entry.snapshot)
                     {
                         known.insert(entry.path.clone(), (identity.clone(), new_mode));
-                        mode_events.insert(
-                            entry.id,
-                            (entry.path.clone(), identity, old_mode, new_mode),
-                        );
+                        mode_events
+                            .insert(entry.id, (entry.path.clone(), identity, old_mode, new_mode));
                     }
                 }
                 "dir_mode_restore" => {
                     if let Ok(original_id) = entry.path.parse::<u64>() {
-                        if let Some((path, identity, old_mode, _)) =
-                            mode_events.get(&original_id)
-                        {
+                        if let Some((path, identity, old_mode, _)) = mode_events.get(&original_id) {
                             known.insert(path.clone(), (identity.clone(), *old_mode));
                         }
                     }
@@ -769,9 +773,9 @@ impl Watcher {
                 }
                 Some((_, known_mode)) if *known_mode != mode => {
                     let snapshot = format!("{identity}:{known_mode:04o}:{mode:04o}");
-                    match journal::next_id().and_then(|id| {
-                        journal::append(id, "dir_mode", text, &snapshot).map(|_| id)
-                    }) {
+                    match journal::next_id()
+                        .and_then(|id| journal::append(id, "dir_mode", text, &snapshot).map(|_| id))
+                    {
                         Ok(_) => events.push(Event::new("dir-mode", &path)),
                         Err(err) => events.push(Event::error(&path, &err)),
                     }
