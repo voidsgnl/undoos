@@ -29,18 +29,27 @@ impl ObjectId {
 
     fn generate() -> Result<Self, String> {
         let mut bytes = [0_u8; ID_BYTES];
-        let result = unsafe {
-            libc::getrandom(
-                bytes.as_mut_ptr() as *mut libc::c_void,
-                bytes.len(),
-                0,
-            )
-        };
-        if result != bytes.len() as isize {
-            return Err(format!(
-                "cannot generate a recovery object ID: {}",
-                std::io::Error::last_os_error()
-            ));
+        let mut filled = 0;
+        while filled < bytes.len() {
+            let result = unsafe {
+                libc::getrandom(
+                    bytes[filled..].as_mut_ptr() as *mut libc::c_void,
+                    bytes.len() - filled,
+                    0,
+                )
+            };
+            if result > 0 {
+                filled += result as usize;
+            } else if result == -1
+                && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+            {
+                continue;
+            } else {
+                return Err(format!(
+                    "cannot generate a recovery object ID: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
         }
         let mut value = String::with_capacity(ID_BYTES * 2);
         for byte in bytes {
@@ -120,11 +129,16 @@ fn checksum(bytes: &[u8]) -> u32 {
     !crc
 }
 
-/// Store one immutable recovery object and return its opaque identifier.
-pub fn put(root: &Path, bytes: &[u8]) -> Result<ObjectId, String> {
-    if bytes.len() as u64 > MAX_OBJECT_BYTES {
+fn validate_object_length(length: u64) -> Result<(), String> {
+    if length > MAX_OBJECT_BYTES {
         return Err("recovery object exceeds the 1 GiB storage limit".to_string());
     }
+    Ok(())
+}
+
+/// Store one immutable recovery object and return its opaque identifier.
+pub fn put(root: &Path, bytes: &[u8]) -> Result<ObjectId, String> {
+    validate_object_length(bytes.len() as u64)?;
     initialize(root)?;
     let directory = objects_directory(root);
 
@@ -298,10 +312,8 @@ mod tests {
     }
 
     #[test]
-    fn rejects_objects_larger_than_the_limit() {
-        let root = temporary_store("oversize");
-        let bytes = vec![0_u8; MAX_OBJECT_BYTES as usize + 1];
-        assert!(put(&root, &bytes).is_err());
-        fs::remove_dir_all(root).unwrap();
+    fn rejects_object_lengths_larger_than_the_limit() {
+        assert!(validate_object_length(MAX_OBJECT_BYTES + 1).is_err());
+        assert!(validate_object_length(MAX_OBJECT_BYTES).is_ok());
     }
 }
