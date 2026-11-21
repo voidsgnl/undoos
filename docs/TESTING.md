@@ -129,6 +129,7 @@ The automated suite includes checks for:
 - Undoing and redoing directory permission changes, while refusing to overwrite an external chmod.
 - Reconciling interrupted directory permission changes from durable intent records.
 - Reconciling interrupted file, tracked-move, and directory transactions from durable journal intent.
+- Parsing system-observer inotify records safely, rejecting truncated or invalidated watches, detecting queue overflow, and distinguishing periodic reconciliation timeouts from readable events.
 
 ### Real process-crash tests
 
