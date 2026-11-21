@@ -3,7 +3,7 @@
 //! Capture is restricted to an explicitly supplied policy root and a
 //! relative path beneath it. Every path component is opened relative to an
 //! already-open directory descriptor with O_NOFOLLOW, preventing symlink
-//! traversal and path-prefix races. This module is not exposed over IPC.
+//! traversal and path-prefix races. The service exposes this adapter only through its fixed hostname capture request.
 
 #![allow(dead_code)]
 
