@@ -65,7 +65,8 @@ See [docs/INSTALL.md](docs/INSTALL.md) for installation options, [docs/TESTING.m
 | `lifeline checkpoint <name>` | Drop a named marker in the timeline |
 | `lifeline back <name>` | Rewind active saved changes after that marker |
 | `lifeline to <id>` | Rewind active saved changes after entry `#id` |
-| `lifeline system status` | Check the privileged system service through its local socket |\n| `lifeline system capture-hostname` | Capture the single approved system file, `/etc/hostname`, after administrator authentication |
+| `lifeline system status` | Check the privileged system service through its local socket |
+| `lifeline system capture-hostname` | Capture the single approved system file, `/etc/hostname`, after administrator authentication |
 
 Full details: [docs/COMMANDS.md](docs/COMMANDS.md).
 
