@@ -178,11 +178,12 @@ fn rewind(id: u64) -> Result<(), String> {
     let snaps = journal::active_snapshots()?;
     let moves = journal::active_moves()?;
     let directories = journal::active_directories()?;
+    let directory_modes = journal::active_directory_modes()?;
     let count = snaps
         .iter()
         .chain(moves.iter())
         .chain(directories.iter())
-        .chain(journal::active_directory_modes()?.into_iter())
+        .chain(directory_modes.iter())
         .filter(|e| e.id > id)
         .count();
     if count == 0 {
