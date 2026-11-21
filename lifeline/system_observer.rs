@@ -12,7 +12,6 @@ use std::{
         unix::fs::MetadataExt,
     },
     path::{Path, PathBuf},
-    time::Duration,
 };
 
 #[path = "system_storage.rs"]
@@ -223,18 +222,29 @@ fn run() -> Result<(), String> {
     // concurrent write is therefore queued and processed after the baseline.
     let mut watcher = watch_etc()?;
     match observe_current(&storage_root) {
-        Ok(true) => eprintln!("lifeline-system-observer: initial hostname baseline is ready"),
-        Ok(false) => eprintln!("lifeline-system-observer: hostname baseline is current"),
-        Err(error) => eprintln!("lifeline-system-observer: initial observation unavailable: {error}"),
+        Ok(true) => {
+            eprintln!("lifeline-system-observer: initial hostname baseline is ready")
+        }
+        Ok(false) => {
+            eprintln!("lifeline-system-observer: hostname baseline is current")
+        }
+        Err(error) => eprintln!(
+            "lifeline-system-observer: initial observation unavailable: {error}"
+        ),
     }
 
     let mut buffer = vec![0_u8; EVENT_BUFFER_BYTES];
     loop {
-        let count = (&mut watcher)
-            .read(&mut buffer)
-            .map_err(|error| format!("cannot read filesystem events: {error}"))?;
+        let count = loop {
+            match watcher.read(&mut buffer) {
+                Ok(count) => break count,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    return Err(format!("cannot read filesystem events: {error}"));
+                }
+            }
+        };
         if count == 0 {
-            std::thread::sleep(Duration::from_millis(100));
             continue;
         }
         match relevant_event(&buffer[..count]) {
