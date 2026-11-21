@@ -18,6 +18,7 @@ ProtectHome=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
+# Polkit binds authorization to SO_PEERCRED using /proc/<pid>/stat.
 ProtectProc=default
 ProcSubset=pid
 RestrictAddressFamilies=AF_UNIX
