@@ -435,10 +435,10 @@ mod tests {
 
     #[test]
     fn rejects_client_supplied_system_paths() {
-        let mut request = Cursor::new(b"CAPTURE /etc/passwd\\n".to_vec());
+        let mut request = Cursor::new(b"CAPTURE /etc/passwd\n".to_vec());
         let mut response = Vec::new();
         assert!(handle_request(&mut request, &mut response, None, None).is_err());
-        assert_eq!(response, b"ERROR unsupported-request\\n");
+        assert_eq!(response, b"ERROR unsupported-request\n");
     }
 
     #[test]
