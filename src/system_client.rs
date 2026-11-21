@@ -12,7 +12,7 @@ const STATUS_RESPONSE: &str = "OK system-service=ready protocol=1\n";
 pub fn status() -> Result<(), String> {
     let mut stream = UnixStream::connect(SOCKET_PATH).map_err(|error| {
         format!(
-            "cannot contact the UndoOS system service at {SOCKET_PATH}: {error}.              Check: systemctl status lifeline-system.socket"
+            "cannot contact the UndoOS system service at {SOCKET_PATH}: {error}. Check: systemctl status lifeline-system.socket"
         )
     })?;
     stream
