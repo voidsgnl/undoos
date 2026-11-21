@@ -396,6 +396,7 @@ mod tests {
     fn reacts_only_to_completed_changes_for_hostname() {
         assert!(relevant_event(&event(libc::IN_CLOSE_WRITE, NAME)).unwrap());
         assert!(relevant_event(&event(libc::IN_MOVED_TO, NAME)).unwrap());
+        assert!(relevant_event(&event(libc::IN_DELETE, NAME)).unwrap());
         assert!(!relevant_event(&event(libc::IN_CLOSE_WRITE, b"hosts")).unwrap());
         assert!(!relevant_event(&event(libc::IN_CREATE, NAME)).unwrap());
     }
