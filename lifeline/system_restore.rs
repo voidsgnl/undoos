@@ -352,7 +352,7 @@ mod tests {
     fn rejects_a_corrupt_pending_restore_record() {
         let root = temporary_root("pending-corrupt");
         write_pending(&root, "0123456789abcdef0123456789abcdef").unwrap();
-        fs::write(pending_path(&root), b"LFRST001|0123456789abcdef0123456789abcdef|00000000\\n")
+        fs::write(pending_path(&root), b"LFRST001|0123456789abcdef0123456789abcdef|00000000\n")
             .unwrap();
         assert!(read_pending(&root)
             .unwrap_err()
