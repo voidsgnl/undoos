@@ -45,13 +45,16 @@ pub fn parse(a: &[String]) -> Result<Command, String> {
         Some("back") => arg(a, "lifeline back <name>").map(Command::Back),
         Some("to") => arg(a, "lifeline to <id>").map(Command::To),
         Some("system") if a.len() == 2 && a[1] == "status" => Ok(Command::SystemStatus),
-        Some("system") => Err("usage: lifeline system status".to_string()),
+        Some("system") if a.len() == 2 && a[1] == "capture-hostname" => Ok(Command::SystemCaptureHostname),
+        Some("system") => Err("usage: lifeline system {status|capture-hostname}".to_string()),
         Some(x) => Err(format!("unknown command: {x}")),
     }
 }
 pub fn run(cmd: Command) -> Result<(), String> {
-    if matches!(&cmd, Command::SystemStatus) {
-        return crate::system_client::status();
+    match &cmd {
+        Command::SystemStatus => return crate::system_client::status(),
+        Command::SystemCaptureHostname => return crate::system_client::capture_hostname(),
+        _ => {}
     }
     if matches!(cmd, Command::Help | Command::Version) {
         return match cmd {
@@ -71,7 +74,7 @@ pub fn run(cmd: Command) -> Result<(), String> {
     let _state_lock = StateLock::acquire()?;
     restore::reconcile_pending()?;
     match cmd {
-        Command::Help | Command::Version | Command::SystemStatus => unreachable!(),
+        Command::Help | Command::Version | Command::SystemStatus | Command::SystemCaptureHostname => unreachable!(),
         Command::Log => {
             let es = journal::read_all()?;
             if es.is_empty() {
@@ -220,19 +223,25 @@ mod tests {
     }
 
     #[test]
+    fn parses_fixed_system_capture_command() {
+        let args = vec!["system".to_string(), "capture-hostname".to_string()];
+        assert!(matches!(parse(&args), Ok(Command::SystemCaptureHostname)));
+    }
+
+    #[test]
     fn rejects_incomplete_system_command() {
         let args = vec!["system".to_string()];
         assert_eq!(
             parse(&args).err().as_deref(),
-            Some("usage: lifeline system status")
+            Some("usage: lifeline system {status|capture-hostname}")
         );
     }
 
     #[test]
-    fn rejects_extra_system_status_arguments() {
+    fn rejects_extra_system_arguments() {
         let args = vec![
             "system".to_string(),
-            "status".to_string(),
+            "capture-hostname".to_string(),
             "anything".to_string(),
         ];
         assert_eq!(
