@@ -166,7 +166,7 @@ mod capture_response_tests {
 pub fn hostname_history() -> Result<(), String> {
     let mut stream = connect_system_service()?;
     stream
-        .write_all(b"HISTORY-HOSTNAME\\n")
+        .write_all(b"HISTORY-HOSTNAME\n")
         .map_err(|error| format!("cannot request system history: {error}"))?;
     let mut response = String::new();
     BufReader::new(stream)
@@ -218,7 +218,7 @@ pub fn restore_hostname(object_id: &str) -> Result<(), String> {
         return Err("invalid recovery object ID; expected 32 lowercase hexadecimal characters".to_string());
     }
     let mut stream = connect_system_service()?;
-    let request = format!("RESTORE-HOSTNAME {object_id}\\n");
+    let request = format!("RESTORE-HOSTNAME {object_id}\n");
     stream
         .write_all(request.as_bytes())
         .map_err(|error| format!("cannot send system restore request: {error}"))?;
