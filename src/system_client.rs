@@ -85,6 +85,12 @@ pub fn capture_hostname() -> Result<(), String> {
     if bytes == 0 {
         return Err("system service closed the connection without a capture response".to_string());
     }
+    if response.trim_end() == "ERROR capture-failed" {
+        return Err(
+            "system-file capture was denied or failed; inspect the service log with: sudo journalctl -u lifeline-system.service -n 30 --no-pager"
+                .to_string(),
+        );
+    }
     let fields = response.split_whitespace().collect::<Vec<_>>();
     if fields.len() != 5
         || fields[0] != "OK"
