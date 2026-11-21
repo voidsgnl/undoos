@@ -26,6 +26,9 @@ mod system_store;
 #[path = "system_catalog.rs"]
 mod system_catalog;
 
+#[path = "system_deletion.rs"]
+mod system_deletion;
+
 #[path = "system_capture.rs"]
 mod system_capture;
 
