@@ -72,6 +72,34 @@ Recovery object: 0123456789abcdef0123456789abcdef
 
 The service selects the path itself. It requires Polkit administrator authentication, checks the exact allowlist, safely opens the file without following symlinks, stores and verifies an immutable recovery object, and appends metadata to the protected catalog. Repeating the command creates another version.
 
+
+## `system history`
+
+List up to the 20 most recent captured versions of the approved system file, `/etc/hostname`.
+
+```console
+$ lifeline system history
+System file history: /etc/hostname
+0123456789abcdef0123456789abcdef  timestamp=1795260000000000000  size=7 bytes
+```
+
+Each row contains the recovery object ID, capture timestamp in Unix epoch nanoseconds, and original file size. History is read from the protected catalog and does not require administrator authentication.
+
+## `system restore <id>`
+
+Restore a version listed by `lifeline system history`.
+
+```console
+$ lifeline system restore 0123456789abcdef0123456789abcdef
+Authentication is required to restore a protected system file.
+Restored /etc/hostname from recovery object: 0123456789abcdef0123456789abcdef
+Previous hostname saved as recovery object: fedcba9876543210fedcba9876543210
+```
+
+The service validates the selected object's catalog entry and integrity, then requires the separate Polkit administrator authorization action. Before changing the file, it captures the current contents as a new recovery object and checks that the live file still matches that safety copy. It writes only to the fixed `/etc/hostname` path, preserving the existing file's inode, owner, group, and mode. A durable pending transaction record allows startup to restore the pre-change contents if the operation is interrupted.
+
+This is a deliberately narrow first restore adapter. It does not restore arbitrary system files, package state, services, or settings. Keep normal backups; this early-development feature should not be treated as a substitute for system backup software.
+
 ## Environment variables
 
 | Variable | Effect |
