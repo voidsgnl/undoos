@@ -265,7 +265,7 @@ fn handle_request<R: Read, W: Write>(
                 events.push((record.captured_at_ns, format!("C|{}|{}|{}", record.object_id, record.captured_at_ns, record.original_size)));
             }
             for event in deletions {
-                events.push((event.deleted_at_ns, format!("D|{}|{}|0", event.previous_object_id, event.deleted_at_ns)));
+                events.push((event.deleted_at_ns, format!("D|{}|{}|{}|0", event.event_id, event.previous_object_id, event.deleted_at_ns)));
             }
             events.sort_by_key(|event| event.0);
             let start = events.len().saturating_sub(20);
