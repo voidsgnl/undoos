@@ -10,7 +10,7 @@
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
-    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+    os::{fd::AsRawFd, unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt}},
     path::{Path, PathBuf},
 };
 
@@ -58,7 +58,27 @@ fn open_target() -> Result<File, String> {
     if metadata.len() > MAX_FILE_BYTES {
         return Err(format!("{TARGET} exceeds the 64 MiB restore limit"));
     }
+    let lock_result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if lock_result != 0 {
+        return Err(format!(
+            "cannot obtain an exclusive restore lock for {TARGET}: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
     Ok(file)
+}
+
+fn same_file_generation(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+    left.dev() == right.dev()
+        && left.ino() == right.ino()
+        && left.uid() == right.uid()
+        && left.gid() == right.gid()
+        && left.permissions().mode() & 0o7777 == right.permissions().mode() & 0o7777
+        && left.len() == right.len()
+        && left.mtime() == right.mtime()
+        && left.mtime_nsec() == right.mtime_nsec()
+        && left.ctime() == right.ctime()
+        && left.ctime_nsec() == right.ctime_nsec()
 }
 
 fn write_target(file: &mut File, expected: &system_catalog::CatalogRecord, bytes: &[u8], expected_live: Option<&[u8]>) -> Result<(), String> {
@@ -247,7 +267,13 @@ pub fn restore_hostname(root: &Path, object_id: &str) -> Result<String, String> 
         vec![PathBuf::from("hostname")],
     )?;
     let backup = system_capture::capture(root, &policy, Path::new("hostname"))?;
-    if backup.device != current_metadata.dev() || backup.inode != current_metadata.ino() {
+    let after_capture = target
+        .metadata()
+        .map_err(|error| format!("cannot recheck current {TARGET}: {error}"))?;
+    if !same_file_generation(&current_metadata, &after_capture)
+        || backup.device != current_metadata.dev()
+        || backup.inode != current_metadata.ino()
+    {
         return Err(format!(
             "{TARGET} changed while its pre-restore recovery point was being captured"
         ));
