@@ -23,7 +23,7 @@ The product should feel like a safety net, not a system-administration tool that
 The current prototype provides:
 
 - A Rust command-line application named `lifeline` and a background `lifeline-daemon`.
-- An opt-in root-owned systemd socket/service scaffold with a root-only health-check protocol; it does not yet expose recovery operations to the user CLI.
+- An opt-in root-owned systemd socket/service with a restricted, read-only `lifeline system status` IPC endpoint; it does not yet expose recovery operations.
 - Configurable watched folders, with `~/Documents` as the default.
 - File baselines and saved copies for observed file changes and deletions.
 - `lifeline log`, `undo`, and `redo`, plus manual snapshots and named checkpoints.
@@ -71,7 +71,7 @@ This requires more than expanding the current folder list or running the existin
 
 The implementation order is:
 
-1. Establish the privileged service, authorization boundary, IPC protocol, and system-owned storage. The first scaffold is now present: a root-only systemd socket, a hardened service process, peer-credential validation, and a health-check-only protocol. User-to-system authorization and recovery storage are still outstanding.
+1. Establish the privileged service, authorization boundary, IPC protocol, and system-owned storage. The first IPC step is now present: a hardened root-owned service, a `root:lifeline` socket restricted to mode `0660`, and a versioned read-only status request. The installer adds the invoking user to the `lifeline` group. Authorization for privileged mutations and protected system recovery storage are still outstanding.
 2. Add carefully scoped system filesystem coverage with mount-boundary and virtual-filesystem exclusions.
 3. Add package-manager transaction capture and recovery.
 4. Add supported systemd service-state recovery.
