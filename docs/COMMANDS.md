@@ -143,4 +143,4 @@ Control protocol: version 1
 
 The system-service installer creates the `lifeline` system group and adds the invoking login to it when installed through `sudo`. Log out and back in after installation so the new group membership applies. The socket is owned by `root:lifeline` with mode `0660`, so only root and members of that group can connect.
 
-This is currently a read-only health check. It does not grant the CLI permission to perform privileged changes, and the service does not accept shell commands or arbitrary filesystem operations.
+The status request itself is read-only. Separate fixed-path capture and restore requests require their own Polkit administrator authorization. The service does not accept shell commands or arbitrary filesystem paths.
