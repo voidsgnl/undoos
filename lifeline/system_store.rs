@@ -137,17 +137,22 @@ pub fn inventory(root: &Path) -> Result<StoreInventory, String> {
     {
         let entry = entry.map_err(|error| format!("cannot read recovery object entry: {error}"))?;
         let name = entry.file_name();
-        let name = name.to_str()
-            .ok_or_else(|| "recovery object directory contains a non-UTF-8 entry name".to_string())?;
+        let name = name.to_str().ok_or_else(|| {
+            "recovery object directory contains a non-UTF-8 entry name".to_string()
+        })?;
         let metadata = fs::symlink_metadata(entry.path())
             .map_err(|error| format!("cannot inspect recovery object entry: {error}"))?;
         if metadata.file_type().is_symlink() || !metadata.is_file() {
-            return Err(format!("recovery object entry {name} is not a regular file"));
+            return Err(format!(
+                "recovery object entry {name} is not a regular file"
+            ));
         }
         if metadata.uid() != expected_uid
             || metadata.permissions().mode() & 0o777 != PRIVATE_FILE_MODE
         {
-            return Err(format!("recovery object entry {name} has unsafe ownership or permissions"));
+            return Err(format!(
+                "recovery object entry {name} has unsafe ownership or permissions"
+            ));
         }
 
         if let Ok(id) = ObjectId::parse(name) {
@@ -162,7 +167,9 @@ pub fn inventory(root: &Path) -> Result<StoreInventory, String> {
                 .map_err(|_| format!("unknown entry in recovery object directory: {name}"))?;
             inventory.temporary_ids.push(id.as_str().to_string());
         } else {
-            return Err(format!("unknown entry in recovery object directory: {name}"));
+            return Err(format!(
+                "unknown entry in recovery object directory: {name}"
+            ));
         }
     }
 
@@ -278,8 +285,8 @@ pub fn get(root: &Path, value: &str) -> Result<Vec<u8>, String> {
         return Err("recovery object has an invalid size".to_string());
     }
 
-    let mut file = File::open(&path)
-        .map_err(|error| format!("cannot open recovery object: {error}"))?;
+    let mut file =
+        File::open(&path).map_err(|error| format!("cannot open recovery object: {error}"))?;
     let mut header = [0_u8; HEADER_LENGTH];
     file.read_exact(&mut header)
         .map_err(|error| format!("cannot read recovery object header: {error}"))?;
