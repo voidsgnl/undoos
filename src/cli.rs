@@ -207,3 +207,36 @@ fn rewind(id: u64) -> Result<(), String> {
     );
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_system_status() {
+        let args = vec!["system".to_string(), "status".to_string()];
+        assert!(matches!(parse(&args), Ok(Command::SystemStatus)));
+    }
+
+    #[test]
+    fn rejects_incomplete_system_command() {
+        let args = vec!["system".to_string()];
+        assert_eq!(
+            parse(&args).unwrap_err(),
+            "usage: lifeline system status"
+        );
+    }
+
+    #[test]
+    fn rejects_extra_system_status_arguments() {
+        let args = vec![
+            "system".to_string(),
+            "status".to_string(),
+            "anything".to_string(),
+        ];
+        assert_eq!(
+            parse(&args).unwrap_err(),
+            "usage: lifeline system status"
+        );
+    }
+}
