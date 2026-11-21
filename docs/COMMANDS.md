@@ -98,6 +98,8 @@ Previous hostname saved as recovery object: fedcba9876543210fedcba9876543210
 
 The service validates the selected object's catalog entry and integrity, then requires the separate Polkit administrator authorization action. Before changing the file, it captures the current contents as a new recovery object and checks that the live file still matches that safety copy. It writes only to the fixed `/etc/hostname` path, preserving the existing file's inode, owner, group, and mode. A durable pending transaction record allows startup to restore the pre-change contents if the operation is interrupted.
 
+This restores the persistent `/etc/hostname` file only. It does not call `hostnamectl` or immediately change the running kernel hostname; the active hostname may remain unchanged until it is applied separately or the machine reboots.
+
 This is a deliberately narrow first restore adapter. It does not restore arbitrary system files, package state, services, or settings. Keep normal backups; this early-development feature should not be treated as a substitute for system backup software.
 
 ## Environment variables
