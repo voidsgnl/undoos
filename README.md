@@ -30,9 +30,9 @@ Redid the undo of entry #1.
 | Independent empty-directory undo/redo | Implemented |
 | Directory permission-mode detection and undo/redo | Implemented |
 | User-level systemd service setup | Works where systemd user services are available |
-| Privileged system-service socket and read-only status check | Implemented |
+| Privileged system-service socket and typed control API | Implemented |
 | Administrator-authorized capture of the fixed `/etc/hostname` path | Implemented |
-| Automatic content observation of `/etc/hostname` | Initial inotify observer; captures baseline and completed content changes only |
+| Automatic content observation of `/etc/hostname` | Initial inotify observer; captures baseline and completed content changes only; requires local verification |
 | Hostname capture history and administrator-authorized restore | Initial crash-recoverable restore adapter implemented; requires local verification |
 | Package installs and removals | Planned |
 | System settings and dotfiles | Planned |
