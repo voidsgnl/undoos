@@ -270,7 +270,7 @@ fn handle_request<R: Read, W: Write>(
             events.sort_by_key(|event| event.0);
             let start = events.len().saturating_sub(20);
             let selected = &events[start..];
-            let mut response = format!("OK history count={}\\n", selected.len());
+            let mut response = format!("OK history count={}\n", selected.len());
             for (_, line) in selected {
                 use std::fmt::Write as _;
                 writeln!(&mut response, "{line}").expect("writing to a String cannot fail");
