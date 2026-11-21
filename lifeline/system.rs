@@ -29,6 +29,9 @@ mod system_catalog;
 #[path = "system_deletion.rs"]
 mod system_deletion;
 
+#[path = "system_deleted_restore.rs"]
+mod system_deleted_restore;
+
 #[path = "system_capture.rs"]
 mod system_capture;
 
@@ -286,11 +289,22 @@ fn handle_request<R: Read, W: Write>(
                 .ok_or_else(|| "restore request has no protected storage root".to_string())?;
             let object_id = std::str::from_utf8(&request[b"RESTORE-HOSTNAME ".len()..])
                 .map_err(|_| "restore request contains an invalid object ID".to_string())?;
-            let result = authorize_system_file_recovery(peer)
-                .and_then(|()| system_restore::restore_hostname(storage_root, object_id));
+            let result = authorize_system_file_recovery(peer).and_then(|()| {
+                let is_snapshot = system_catalog::read_all(storage_root)?.iter().any(|record| {
+                    record.object_id == object_id
+                        && record.original_path == std::path::Path::new("/etc/hostname")
+                });
+                if is_snapshot {
+                    system_restore::restore_hostname(storage_root, object_id)
+                        .map(|backup_id| format!("backup={backup_id}"))
+                } else {
+                    system_deleted_restore::restore_deleted_hostname(storage_root, object_id)
+                        .map(|()| format!("deletion={object_id}"))
+                }
+            });
             match result {
-                Ok(backup_id) => {
-                    let response = format!("OK restored backup={backup_id}\n");
+                Ok(result_kind) => {
+                    let response = format!("OK restored {result_kind}\n");
                     writer
                         .write_all(response.as_bytes())
                         .map_err(|error| format!("cannot send restore response: {error}"))
@@ -352,9 +366,9 @@ fn handle_request<R: Read, W: Write>(
 
 fn handle_connection(mut stream: UnixStream) -> Result<(), String> {
     // Retry a retained rollback transaction before serving any new request.
-    system_restore::recover_interrupted_restore(std::path::Path::new(
-        "/var/lib/lifeline/system",
-    ))?;
+    let recovery_root = std::path::Path::new("/var/lib/lifeline/system");
+    system_restore::recover_interrupted_restore(recovery_root)?;
+    system_deleted_restore::recover_interrupted_restore(recovery_root)?;
 
     // SO_PEERCRED is supplied by the kernel, not by client-controlled request
     // data. The socket's root:lifeline ownership and 0660 mode enforce the
@@ -403,6 +417,8 @@ fn main() {
     });
     system_restore::recover_interrupted_restore(&storage_path)
         .unwrap_or_else(|error| fail(&format!("cannot recover interrupted system-file restore: {error}")));
+    system_deleted_restore::recover_interrupted_restore(&storage_path)
+        .unwrap_or_else(|error| fail(&format!("cannot recover interrupted deleted-file restore: {error}")));
     eprintln!(
         "lifeline-systemd: recovery store verified: {} catalog records; {} orphaned objects; {} interrupted temporary files",
         reconciliation.catalog_records,
