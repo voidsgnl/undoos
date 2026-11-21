@@ -117,12 +117,10 @@ fn read_current() -> Result<Vec<u8>, String> {
 fn latest_hostname_record(
     storage_root: &Path,
 ) -> Result<Option<system_catalog::CatalogRecord>, String> {
-    let mut records = system_catalog::read_all(storage_root)?
+    Ok(system_catalog::read_all(storage_root)?
         .into_iter()
         .filter(|record| record.original_path == Path::new(TARGET))
-        .collect::<Vec<_>>();
-    records.sort_by_key(|record| record.captured_at_ns);
-    Ok(records.pop())
+        .last())
 }
 
 /// Store a baseline on first start, then append a version only when the
@@ -297,5 +295,11 @@ mod tests {
     #[test]
     fn rejects_truncated_event_records() {
         assert!(relevant_event(&[0_u8; 8]).is_err());
+    }
+
+    #[test]
+    fn requests_restart_when_the_directory_watch_is_invalidated() {
+        assert!(relevant_event(&event(libc::IN_IGNORED, b"")).is_err());
+        assert!(relevant_event(&event(libc::IN_DELETE_SELF, b"")).is_err());
     }
 }
