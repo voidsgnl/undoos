@@ -501,7 +501,7 @@ mod tests {
     fn rejects_oversized_requests() {
         let mut request = Cursor::new(vec![b'A'; MAX_REQUEST_BYTES + 1]);
         let mut response = Vec::new();
-        assert!(handle_request(&mut request, &mut response).is_err());
+        assert!(handle_request(&mut request, &mut response, None, None).is_err());
         assert_eq!(response, b"ERROR request-too-long\n");
     }
 }
