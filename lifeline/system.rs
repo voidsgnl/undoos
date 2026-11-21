@@ -80,6 +80,7 @@ fn peer_credentials(stream: &UnixStream) -> Result<PeerCredentials, String> {
 // This action is deliberately specific to restoring protected system files.
 // Other recovery domains must receive separate Polkit action IDs.
 const SYSTEM_FILE_RECOVERY_ACTION: &str = "org.undoos.system.recover-file";
+const SYSTEM_FILE_CAPTURE_ACTION: &str = "org.undoos.system.capture-file";
 
 /// Extract Linux process start time (field 22 of /proc/<pid>/stat).
 /// The command name is parenthesized and may itself contain spaces or ')'.
@@ -106,6 +107,14 @@ fn process_start_time(expected_pid: libc::pid_t, stat: &str) -> Result<u64, Stri
 /// protected system file. This is not called by the current read-only API.
 #[allow(dead_code)]
 fn authorize_system_file_recovery(peer: &PeerCredentials) -> Result<(), String> {
+    authorize_action(peer, SYSTEM_FILE_RECOVERY_ACTION)
+}
+
+fn authorize_system_file_capture(peer: &PeerCredentials) -> Result<(), String> {
+    authorize_action(peer, SYSTEM_FILE_CAPTURE_ACTION)
+}
+
+fn authorize_action(peer: &PeerCredentials, action_id: &str) -> Result<(), String> {
     let stat_path = format!("/proc/{}/stat", peer.pid);
     let stat = std::fs::read_to_string(&stat_path)
         .map_err(|error| format!("cannot verify client process identity: {error}"))?;
@@ -115,7 +124,7 @@ fn authorize_system_file_recovery(peer: &PeerCredentials) -> Result<(), String> 
     let output = process::Command::new("/usr/bin/pkcheck")
         .args([
             "--action-id",
-            SYSTEM_FILE_RECOVERY_ACTION,
+            action_id,
             "--process",
             &subject,
             "--allow-user-interaction",
@@ -210,7 +219,12 @@ fn inherited_listener() -> Result<UnixListener, String> {
     Ok(listener)
 }
 
-fn handle_request<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result<(), String> {
+fn handle_request<R: Read, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    peer: Option<&PeerCredentials>,
+    storage_root: Option<&std::path::Path>,
+) -> Result<(), String> {
     let mut request = Vec::with_capacity(MAX_REQUEST_BYTES);
     let mut byte = [0_u8; 1];
     loop {
@@ -235,6 +249,28 @@ fn handle_request<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result<(
         b"STATUS" => writer
             .write_all(b"OK system-service=ready protocol=1\n")
             .map_err(|e| format!("cannot send response: {e}")),
+        b"CAPTURE-HOSTNAME" => {
+            let peer = peer.ok_or_else(|| "capture request has no authenticated client".to_string())?;
+            let storage_root = storage_root
+                .ok_or_else(|| "capture request has no protected storage root".to_string())?;
+            authorize_system_file_capture(peer)?;
+            let policy = system_capture::CapturePolicy::new(
+                std::path::Path::new("/etc"),
+                vec![std::path::PathBuf::from("hostname")],
+            )?;
+            let record = system_capture::capture(
+                storage_root,
+                &policy,
+                std::path::Path::new("hostname"),
+            )?;
+            let response = format!(
+                "OK captured object={} size={} path=/etc/hostname\n",
+                record.object_id, record.original_size
+            );
+            writer
+                .write_all(response.as_bytes())
+                .map_err(|e| format!("cannot send capture response: {e}"))
+        }
         _ => {
             writer
                 .write_all(b"ERROR unsupported-request\n")
@@ -265,7 +301,12 @@ fn handle_connection(mut stream: UnixStream) -> Result<(), String> {
     let mut reader = stream
         .try_clone()
         .map_err(|e| format!("cannot clone client socket: {e}"))?;
-    handle_request(&mut reader, &mut stream)
+    handle_request(
+        &mut reader,
+        &mut stream,
+        Some(&peer),
+        Some(std::path::Path::new("/var/lib/lifeline/system")),
+    )
 }
 
 fn main() {
@@ -348,7 +389,7 @@ mod tests {
     fn answers_ping() {
         let mut request = Cursor::new(b"PING\n".to_vec());
         let mut response = Vec::new();
-        handle_request(&mut request, &mut response).unwrap();
+        handle_request(&mut request, &mut response, None, None).unwrap();
         assert_eq!(response, b"PONG\n");
     }
 
