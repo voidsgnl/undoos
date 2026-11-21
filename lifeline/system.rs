@@ -29,6 +29,9 @@ mod system_catalog;
 #[path = "system_capture.rs"]
 mod system_capture;
 
+#[path = "system_reconcile.rs"]
+mod system_reconcile;
+
 #[derive(Debug, PartialEq, Eq)]
 struct PeerCredentials {
     pid: libc::pid_t,
@@ -274,9 +277,15 @@ fn main() {
     system_store::initialize(&storage_path).unwrap_or_else(|error| {
         fail(&format!("cannot initialize protected system object storage: {error}"))
     });
-    system_catalog::read_all(&storage_path).unwrap_or_else(|error| {
-        fail(&format!("system recovery catalog is invalid: {error}"))
+    let reconciliation = system_reconcile::reconcile(&storage_path).unwrap_or_else(|error| {
+        fail(&format!("system recovery storage reconciliation failed: {error}"))
     });
+    eprintln!(
+        "lifeline-systemd: recovery store verified: {} catalog records; {} orphaned objects; {} interrupted temporary files",
+        reconciliation.catalog_records,
+        reconciliation.orphaned_object_ids.len(),
+        reconciliation.interrupted_temporary_ids.len()
+    );
     eprintln!(
         "lifeline-systemd: verified protected system storage at {}",
         storage_path.display()
