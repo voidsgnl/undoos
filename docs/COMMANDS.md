@@ -73,6 +73,19 @@ Recovery object: 0123456789abcdef0123456789abcdef
 The service selects the path itself. It requires Polkit administrator authentication, checks the exact allowlist, safely opens the file without following symlinks, stores and verifies an immutable recovery object, and appends metadata to the protected catalog. Repeating the command creates another version.
 
 
+## Automatic hostname observation
+
+When the optional privileged system observer is installed, it automatically stores an initial `/etc/hostname` baseline and records later completed content writes or atomic replacements. It watches the `/etc` directory but processes only the exact `hostname` entry. No command or administrator prompt is needed for each background capture; the observer is a root-owned system service installed explicitly with `make system-install`.
+
+Check its status and recent messages:
+
+```sh
+systemctl status lifeline-system-observer.service
+sudo journalctl -u lifeline-system-observer.service -n 30 --no-pager
+```
+
+This first observer does not record deletion, metadata-only changes, or every intermediate state when events are coalesced or the inotify queue overflows. It does not watch other files in `/etc` or any other system location. Manual capture and administrator-authorized restore remain available through the commands below.
+
 ## `system history`
 
 List up to the 20 most recent captured versions of the approved system file, `/etc/hostname`.
