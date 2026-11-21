@@ -10,7 +10,7 @@ use std::{
     io::{Read, Write},
     os::fd::AsRawFd,
     os::unix::{
-        ffi::OsStrExt,
+        ffi::{OsStrExt, OsStringExt},
         fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     },
     path::{Component, Path, PathBuf},
