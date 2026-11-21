@@ -92,7 +92,10 @@ fn validate_original_path(path: &Path) -> Result<(), String> {
     if path.as_os_str().as_bytes().len() > MAX_PATH_BYTES {
         return Err("original path exceeds the catalog path limit".to_string());
     }
-    if path.components().any(|component| matches!(component, Component::ParentDir)) {
+    if path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
         return Err("catalog paths must not contain parent-directory components".to_string());
     }
     Ok(())
@@ -129,20 +132,41 @@ fn parse_record(line: &str) -> Result<CatalogRecord, String> {
     if !valid_object_id(object_id) {
         return Err("catalog record has an invalid object ID".to_string());
     }
-    let captured_at_ns = fields.next().ok_or("catalog record is missing timestamp")?
-        .parse::<u128>().map_err(|_| "catalog record has an invalid timestamp")?;
-    let original_size = fields.next().ok_or("catalog record is missing size")?
-        .parse::<u64>().map_err(|_| "catalog record has an invalid size")?;
-    let mode = fields.next().ok_or("catalog record is missing mode")?
-        .parse::<u32>().map_err(|_| "catalog record has an invalid mode")?;
-    let uid = fields.next().ok_or("catalog record is missing UID")?
-        .parse::<u32>().map_err(|_| "catalog record has an invalid UID")?;
-    let gid = fields.next().ok_or("catalog record is missing GID")?
-        .parse::<u32>().map_err(|_| "catalog record has an invalid GID")?;
-    let device = fields.next().ok_or("catalog record is missing device")?
-        .parse::<u64>().map_err(|_| "catalog record has an invalid device")?;
-    let inode = fields.next().ok_or("catalog record is missing inode")?
-        .parse::<u64>().map_err(|_| "catalog record has an invalid inode")?;
+    let captured_at_ns = fields
+        .next()
+        .ok_or("catalog record is missing timestamp")?
+        .parse::<u128>()
+        .map_err(|_| "catalog record has an invalid timestamp")?;
+    let original_size = fields
+        .next()
+        .ok_or("catalog record is missing size")?
+        .parse::<u64>()
+        .map_err(|_| "catalog record has an invalid size")?;
+    let mode = fields
+        .next()
+        .ok_or("catalog record is missing mode")?
+        .parse::<u32>()
+        .map_err(|_| "catalog record has an invalid mode")?;
+    let uid = fields
+        .next()
+        .ok_or("catalog record is missing UID")?
+        .parse::<u32>()
+        .map_err(|_| "catalog record has an invalid UID")?;
+    let gid = fields
+        .next()
+        .ok_or("catalog record is missing GID")?
+        .parse::<u32>()
+        .map_err(|_| "catalog record has an invalid GID")?;
+    let device = fields
+        .next()
+        .ok_or("catalog record is missing device")?
+        .parse::<u64>()
+        .map_err(|_| "catalog record has an invalid device")?;
+    let inode = fields
+        .next()
+        .ok_or("catalog record is missing inode")?
+        .parse::<u64>()
+        .map_err(|_| "catalog record has an invalid inode")?;
     let path_hex = fields.next().ok_or("catalog record is missing path")?;
     let checksum_hex = fields.next().ok_or("catalog record is missing checksum")?;
     if fields.next().is_some() {
@@ -173,7 +197,11 @@ fn parse_record(line: &str) -> Result<CatalogRecord, String> {
     })
 }
 
-fn metadata_record(object_id: &str, original_path: &Path, metadata: &Metadata) -> Result<CatalogRecord, String> {
+fn metadata_record(
+    object_id: &str,
+    original_path: &Path,
+    metadata: &Metadata,
+) -> Result<CatalogRecord, String> {
     if !valid_object_id(object_id) {
         return Err("invalid recovery object ID".to_string());
     }
@@ -235,11 +263,17 @@ fn open_catalog(root: &Path) -> Result<File, String> {
         Err(error) => return Err(format!("cannot inspect system recovery catalog: {error}")),
     };
     let mut options = OpenOptions::new();
-    options.read(true).append(true).create(true).mode(PRIVATE_FILE_MODE);
+    options
+        .read(true)
+        .append(true)
+        .create(true)
+        .mode(PRIVATE_FILE_MODE);
     options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
-    let file = options.open(&path)
+    let file = options
+        .open(&path)
         .map_err(|error| format!("cannot open system recovery catalog: {error}"))?;
-    let metadata = file.metadata()
+    let metadata = file
+        .metadata()
         .map_err(|error| format!("cannot inspect system recovery catalog: {error}"))?;
     if !metadata.is_file() || metadata.nlink() != 1 {
         return Err("system recovery catalog is not a single regular file".to_string());
@@ -262,7 +296,12 @@ fn open_catalog(root: &Path) -> Result<File, String> {
 }
 
 /// Append durable metadata for an object after its content has been stored.
-pub fn append(root: &Path, object_id: &str, original_path: &Path, metadata: &Metadata) -> Result<CatalogRecord, String> {
+pub fn append(
+    root: &Path,
+    object_id: &str,
+    original_path: &Path,
+    metadata: &Metadata,
+) -> Result<CatalogRecord, String> {
     let record = metadata_record(object_id, original_path, metadata)?;
     let payload = record_payload(&record);
     let line = format!("{payload}|{:08x}\n", checksum(payload.as_bytes()));
@@ -272,13 +311,19 @@ pub fn append(root: &Path, object_id: &str, original_path: &Path, metadata: &Met
     let mut file = open_catalog(root)?;
     let lock_result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
     if lock_result != 0 {
-        return Err(format!("cannot lock system recovery catalog: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "cannot lock system recovery catalog: {}",
+            std::io::Error::last_os_error()
+        ));
     }
 
     let result = (|| -> Result<(), String> {
         let bytes = read_catalog_bytes(&mut file)?;
         let (records, complete_length) = parse_catalog_bytes(&bytes)?;
-        if records.iter().any(|existing| existing.object_id == record.object_id) {
+        if records
+            .iter()
+            .any(|existing| existing.object_id == record.object_id)
+        {
             return Err("recovery object already has a catalog entry".to_string());
         }
 
@@ -301,7 +346,9 @@ pub fn append(root: &Path, object_id: &str, original_path: &Path, metadata: &Met
         Ok(())
     })();
 
-    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN); }
+    unsafe {
+        libc::flock(file.as_raw_fd(), libc::LOCK_UN);
+    }
     result?;
     Ok(record)
 }
@@ -323,11 +370,16 @@ pub fn read_all(root: &Path) -> Result<Vec<CatalogRecord>, String> {
     let mut file = open_catalog(root)?;
     let lock_result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) };
     if lock_result != 0 {
-        return Err(format!("cannot lock system recovery catalog: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "cannot lock system recovery catalog: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     let result = read_catalog_bytes(&mut file)
         .and_then(|bytes| parse_catalog_bytes(&bytes).map(|(records, _)| records));
-    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN); }
+    unsafe {
+        libc::flock(file.as_raw_fd(), libc::LOCK_UN);
+    }
     result
 }
 
@@ -337,10 +389,8 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     fn temporary_store(label: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "lifeline-catalog-{label}-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("lifeline-catalog-{label}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
@@ -353,7 +403,13 @@ mod tests {
         let source = root.join("example.conf");
         fs::write(&source, b"configuration").unwrap();
         let metadata = fs::metadata(&source).unwrap();
-        let record = append(&root, "0123456789abcdef0123456789abcdef", &source, &metadata).unwrap();
+        let record = append(
+            &root,
+            "0123456789abcdef0123456789abcdef",
+            &source,
+            &metadata,
+        )
+        .unwrap();
 
         let records = read_all(&root).unwrap();
         assert_eq!(records, vec![record]);
@@ -373,7 +429,13 @@ mod tests {
         let source = root.join("example");
         fs::write(&source, b"x").unwrap();
         let metadata = fs::metadata(&source).unwrap();
-        append(&root, "0123456789abcdef0123456789abcdef", &source, &metadata).unwrap();
+        append(
+            &root,
+            "0123456789abcdef0123456789abcdef",
+            &source,
+            &metadata,
+        )
+        .unwrap();
 
         let catalog = catalog_path(&root);
         let mut contents = fs::read(&catalog).unwrap();
@@ -428,10 +490,20 @@ mod tests {
         let source = root.join("example");
         fs::write(&source, b"x").unwrap();
         let metadata = fs::metadata(&source).unwrap();
-        let record = append(&root, "0123456789abcdef0123456789abcdef", &source, &metadata).unwrap();
+        let record = append(
+            &root,
+            "0123456789abcdef0123456789abcdef",
+            &source,
+            &metadata,
+        )
+        .unwrap();
         use std::io::Write as _;
-        OpenOptions::new().append(true).open(catalog_path(&root)).unwrap()
-            .write_all(b"LFCAT001|incomplete").unwrap();
+        OpenOptions::new()
+            .append(true)
+            .open(catalog_path(&root))
+            .unwrap()
+            .write_all(b"LFCAT001|incomplete")
+            .unwrap();
 
         assert_eq!(read_all(&root).unwrap(), vec![record]);
         fs::remove_dir_all(root).unwrap();
