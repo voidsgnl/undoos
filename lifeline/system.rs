@@ -257,25 +257,23 @@ fn handle_request<R: Read, W: Write>(
             .write_all(b"OK system-service=ready protocol=1\n")
             .map_err(|e| format!("cannot send response: {e}")),
         b"HISTORY-HOSTNAME" => {
-            let records = system_catalog::read_all(
-                storage_root.ok_or_else(|| "history request has no protected storage root".to_string())?
-            )?;
-            let mut hostname_records = records
-                .into_iter()
-                .filter(|record| record.original_path == std::path::Path::new("/etc/hostname"))
-                .collect::<Vec<_>>();
-            hostname_records.sort_by_key(|record| record.captured_at_ns);
-            let start = hostname_records.len().saturating_sub(20);
-            let selected = &hostname_records[start..];
-            let mut response = format!("OK history count={}\n", selected.len());
-            for record in selected {
+            let root = storage_root.ok_or_else(|| "history request has no protected storage root".to_string())?;
+            let records = system_catalog::read_all(root)?;
+            let deletions = system_deletion::read_all(root)?;
+            let mut events = Vec::new();
+            for record in records.into_iter().filter(|record| record.original_path == std::path::Path::new("/etc/hostname")) {
+                events.push((record.captured_at_ns, format!("C|{}|{}|{}", record.object_id, record.captured_at_ns, record.original_size)));
+            }
+            for event in deletions {
+                events.push((event.deleted_at_ns, format!("D|{}|{}|0", event.previous_object_id, event.deleted_at_ns)));
+            }
+            events.sort_by_key(|event| event.0);
+            let start = events.len().saturating_sub(20);
+            let selected = &events[start..];
+            let mut response = format!("OK history count={}\\n", selected.len());
+            for (_, line) in selected {
                 use std::fmt::Write as _;
-                writeln!(
-                    &mut response,
-                    "{}|{}|{}",
-                    record.object_id, record.captured_at_ns, record.original_size
-                )
-                .expect("writing to a String cannot fail");
+                writeln!(&mut response, "{line}").expect("writing to a String cannot fail");
             }
             writer
                 .write_all(response.as_bytes())
