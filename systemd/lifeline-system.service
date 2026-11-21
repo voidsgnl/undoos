@@ -14,8 +14,10 @@ AmbientCapabilities=
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectSystem=strict
-# Allow writes only to the recovery store and the single approved hostname file.
-ReadWritePaths=/var/lib/lifeline/system /etc/hostname
+# The adapter must create /etc/hostname after deletion. Directory-entry
+# creation requires /etc itself to be writable in this mount namespace.
+# The service API and openat-based adapter remain hard-coded to hostname only.
+ReadWritePaths=/var/lib/lifeline/system /etc
 ProtectHome=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
