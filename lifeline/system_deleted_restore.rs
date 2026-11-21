@@ -345,3 +345,73 @@ pub fn restore_deleted_hostname(root: &Path, event_id: &str) -> Result<(), Strin
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn temporary_root(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "lifeline-deleted-restore-{label}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        root
+    }
+
+    #[test]
+    fn persists_and_reads_both_transaction_phases() {
+        let root = temporary_root("journal-roundtrip");
+        let pending = Pending {
+            event_id: "abcdef0123456789abcdef0123456789".to_string(),
+            object_id: "0123456789abcdef0123456789abcdef".to_string(),
+            staged: false,
+            device: 0,
+            inode: 0,
+        };
+        write_pending(&root, &pending).unwrap();
+        assert_eq!(read_pending(&root).unwrap(), Some(pending.clone()));
+
+        let staged = Pending { staged: true, device: 7, inode: 42, ..pending.clone() };
+        write_pending(&root, &staged).unwrap();
+        assert_eq!(read_pending(&root).unwrap(), Some(staged));
+        remove_pending(&root).unwrap();
+        assert_eq!(read_pending(&root).unwrap(), None);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn refuses_corrupt_transaction_journals() {
+        let root = temporary_root("journal-corrupt");
+        let pending = Pending {
+            event_id: "abcdef0123456789abcdef0123456789".to_string(),
+            object_id: "0123456789abcdef0123456789abcdef".to_string(),
+            staged: true,
+            device: 7,
+            inode: 42,
+        };
+        write_pending(&root, &pending).unwrap();
+        fs::write(pending_path(&root), b"LFCRE001|bad\\n").unwrap();
+        assert!(read_pending(&root).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cleanup_removes_only_the_recorded_inode() {
+        let root = temporary_root("inode-cleanup");
+        let directory = File::open(&root).unwrap();
+        let target = root.join("target");
+        fs::write(&target, b"owned by this transaction").unwrap();
+        let metadata = fs::metadata(&target).unwrap();
+        unlink_if_same(&directory, "target", metadata.dev(), metadata.ino()).unwrap();
+        assert!(!target.exists());
+
+        fs::write(&target, b"concurrent replacement").unwrap();
+        let metadata = fs::metadata(&target).unwrap();
+        assert!(unlink_if_same(&directory, "target", metadata.dev(), metadata.ino() + 1).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"concurrent replacement");
+        fs::remove_dir_all(root).unwrap();
+    }
+}
