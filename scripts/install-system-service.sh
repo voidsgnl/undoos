@@ -21,13 +21,32 @@ if ! command -v systemctl >/dev/null 2>&1; then
     exit 1
 fi
 
+if ! getent group lifeline >/dev/null 2>&1; then
+    groupadd --system lifeline
+fi
+
+INSTALL_USER=${SUDO_USER:-}
+if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+    if id "$INSTALL_USER" >/dev/null 2>&1; then
+        usermod -a -G lifeline "$INSTALL_USER"
+    else
+        echo "Warning: could not find invoking user '$INSTALL_USER'; add your login to the lifeline group manually." >&2
+    fi
+else
+    echo "Warning: no non-root invoking user detected; add your login to the lifeline group manually." >&2
+fi
+
 install -D -o root -g root -m 0755 "$BINARY" /usr/local/libexec/lifeline-systemd
 install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline-system.socket" "$UNIT_DIR/lifeline-system.socket"
 install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline-system.service" "$UNIT_DIR/lifeline-system.service"
 
+systemctl stop lifeline-system.socket lifeline-system.service 2>/dev/null || true
 systemctl daemon-reload
 systemctl enable --now lifeline-system.socket
 
-echo "Installed the root-only UndoOS system-service scaffold."
-echo "The socket is restricted to root (0600); no system changes can be requested yet."
+echo "Installed the UndoOS system-service status endpoint."
+echo "The control socket is accessible to root and members of the lifeline group (0660)."
+if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+    echo "Log out and back in before running: lifeline system status"
+fi
 echo "Check it with: systemctl status lifeline-system.socket"
