@@ -126,7 +126,7 @@ System service: running
 Control protocol: version 1
 ```
 
-This command sends a fixed, versioned, read-only status request over the Unix socket. The first request starts the service through systemd socket activation. The service currently accepts only health-check requests; it does not monitor system files, change system settings, or perform recovery operations. It does not accept shell commands or arbitrary filesystem paths. The system-service installer also installs the Polkit action definition for future protected system-file recovery. The authorization helper is not yet connected to a recovery request, so no privileged recovery operation is available.
+This command sends a fixed, versioned, read-only status request over the Unix socket. The first request starts the service through systemd socket activation. The service currently accepts only health-check requests; it does not monitor system files, change system settings, or perform recovery operations. Its systemd sandbox keeps the filesystem read-only except for the dedicated `/var/lib/lifeline/system` recovery-storage directory. It does not accept shell commands or arbitrary filesystem paths. The system-service installer also installs the Polkit action definition for future protected system-file recovery. The authorization helper is not yet connected to a recovery request, so no privileged recovery operation is available.
 
 Inspect service messages with:
 
