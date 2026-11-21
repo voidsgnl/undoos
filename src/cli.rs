@@ -16,6 +16,7 @@ COMMANDS:
     back <name>          Rewind saved changes after a checkpoint
     to <id>              Rewind saved changes after entry #id
     system status        Check the privileged system service
+    system capture-hostname  Capture the approved /etc/hostname file
     help                 Show this message
     --version            Show the version";
 pub enum Command {
@@ -29,6 +30,7 @@ pub enum Command {
     Back(String),
     To(String),
     SystemStatus,
+    SystemCaptureHostname,
 }
 fn arg(a: &[String], u: &str) -> Result<String, String> {
     a.get(1).cloned().ok_or_else(|| format!("usage: {u}"))
