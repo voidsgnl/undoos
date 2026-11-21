@@ -4,8 +4,8 @@ Description=UndoOS privileged control socket
 [Socket]
 ListenStream=/run/lifeline/control.sock
 SocketUser=root
-SocketGroup=root
-SocketMode=0600
+SocketGroup=lifeline
+SocketMode=0660
 DirectoryMode=0700
 Accept=no
 RemoveOnStop=yes
