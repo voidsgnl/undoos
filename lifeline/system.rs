@@ -294,7 +294,16 @@ fn handle_request<R: Read, W: Write>(
                     record.object_id == object_id
                         && record.original_path == std::path::Path::new("/etc/hostname")
                 });
-                if is_snapshot {
+                let is_deletion_event = system_deletion::read_all(storage_root)?.iter()
+                    .any(|event| event.event_id == object_id);
+                let target_is_missing = matches!(
+                    std::fs::symlink_metadata("/etc/hostname"),
+                    Err(ref error) if error.kind() == std::io::ErrorKind::NotFound
+                );
+                if is_deletion_event && target_is_missing {
+                    system_deleted_restore::restore_deleted_hostname(storage_root, object_id)
+                        .map(|()| format!("deletion={object_id}"))
+                } else if is_snapshot {
                     system_restore::restore_hostname(storage_root, object_id)
                         .map(|backup_id| format!("backup={backup_id}"))
                 } else {
