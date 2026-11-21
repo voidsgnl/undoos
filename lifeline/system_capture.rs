@@ -1,17 +1,21 @@
 //! Narrow, internal system-file capture coordinator.
 //!
-//! Capture is restricted to an explicitly supplied policy root. This module is
-//! not reachable through the IPC protocol; callers must choose the allowed
-//! root themselves. The initial implementation is intended for controlled
-//! fixtures and future allowlisted system paths, not broad /etc or / access.
+//! Capture is restricted to an explicitly supplied policy root and a
+//! relative path beneath it. Every path component is opened relative to an
+//! already-open directory descriptor with O_NOFOLLOW, preventing symlink
+//! traversal and path-prefix races. This module is not exposed over IPC.
 
 #![allow(dead_code)]
 
 use std::{
+    ffi::CString,
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom},
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
-    path::{Path, PathBuf},
+    os::{
+        fd::{AsRawFd, FromRawFd},
+        unix::{ffi::OsStrExt, fs::{MetadataExt, OpenOptionsExt}},
+    },
+    path::{Component, Path, PathBuf},
 };
 
 use super::{system_catalog, system_store};
@@ -31,48 +35,94 @@ fn same_source_state(before: &fs::Metadata, after: &fs::Metadata) -> bool {
         && before.ctime_nsec() == after.ctime_nsec()
 }
 
-fn open_source(allowed_root: &Path, requested_path: &Path) -> Result<(PathBuf, File, fs::Metadata), String> {
-    // Inspect the caller-supplied final component before canonicalization:
-    // canonicalize alone would follow a symbolic link and hide that fact.
-    let requested_metadata = fs::symlink_metadata(requested_path)
-        .map_err(|error| format!("cannot inspect requested system file: {error}"))?;
-    if requested_metadata.file_type().is_symlink() {
-        return Err("symbolic-link capture requests are not permitted".to_string());
+fn component_name(component: &std::ffi::OsStr) -> Result<CString, String> {
+    CString::new(component.as_bytes())
+        .map_err(|_| "capture path contains a NUL byte".to_string())
+}
+
+fn open_directory_at(parent: &File, name: &std::ffi::OsStr) -> Result<File, String> {
+    let name = component_name(name)?;
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        return Err(format!(
+            "cannot safely open a capture path directory: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    // SAFETY: openat returned a new owned descriptor.
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+/// Open a relative path without following symlinks in any component.
+/// The policy root is resolved once and then held open for the full traversal.
+fn open_source(
+    allowed_root: &Path,
+    relative_path: &Path,
+) -> Result<(PathBuf, File, fs::Metadata), String> {
+    if relative_path.as_os_str().is_empty() || relative_path.is_absolute() {
+        return Err("capture path must be a non-empty relative path".to_string());
+    }
+
+    let components = relative_path.components().collect::<Vec<_>>();
+    if components.is_empty()
+        || components.iter().any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err("capture path must contain only ordinary relative path components".to_string());
     }
 
     let root = fs::canonicalize(allowed_root)
         .map_err(|error| format!("cannot resolve capture policy root: {error}"))?;
-    let source = fs::canonicalize(requested_path)
-        .map_err(|error| format!("cannot resolve requested system file: {error}"))?;
-
-    if source == root || !source.starts_with(&root) {
-        return Err("requested file is outside the permitted capture root".to_string());
+    let mut root_options = OpenOptions::new();
+    root_options.read(true);
+    root_options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_DIRECTORY);
+    let mut current = root_options.open(&root)
+        .map_err(|error| format!("cannot safely open capture policy root: {error}"))?;
+    if !current.metadata().map_err(|error| format!("cannot inspect capture policy root: {error}"))?.is_dir() {
+        return Err("capture policy root is not a directory".to_string());
     }
 
-    let path_metadata = fs::symlink_metadata(&source)
-        .map_err(|error| format!("cannot inspect requested system file: {error}"))?;
-    if path_metadata.file_type().is_symlink() || !path_metadata.is_file() {
-        return Err("only regular, non-symbolic-link files can be captured".to_string());
+    for component in &components[..components.len() - 1] {
+        let Component::Normal(name) = component else {
+            return Err("capture path contains an unsupported component".to_string());
+        };
+        current = open_directory_at(&current, name)?;
     }
-    if path_metadata.len() > MAX_CAPTURE_BYTES {
+
+    let Component::Normal(final_name) = components[components.len() - 1] else {
+        return Err("capture path has an invalid final component".to_string());
+    };
+    let final_name = component_name(final_name)?;
+    let fd = unsafe {
+        libc::openat(
+            current.as_raw_fd(),
+            final_name.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+        )
+    };
+    if fd < 0 {
+        return Err(format!(
+            "cannot safely open requested system file: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    // SAFETY: openat returned a new owned descriptor.
+    let file = unsafe { File::from_raw_fd(fd) };
+    let metadata = file.metadata()
+        .map_err(|error| format!("cannot inspect opened system file: {error}"))?;
+    if !metadata.is_file() {
+        return Err("only regular files can be captured".to_string());
+    }
+    if metadata.len() > MAX_CAPTURE_BYTES {
         return Err("system file exceeds the 64 MiB capture limit".to_string());
     }
 
-    let mut options = OpenOptions::new();
-    options.read(true);
-    options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    let file = options.open(&source)
-        .map_err(|error| format!("cannot safely open requested system file: {error}"))?;
-    let descriptor_metadata = file.metadata()
-        .map_err(|error| format!("cannot inspect opened system file: {error}"))?;
-
-    if !descriptor_metadata.is_file()
-        || !same_source_state(&path_metadata, &descriptor_metadata)
-    {
-        return Err("system file changed while it was being opened".to_string());
-    }
-
-    Ok((source, file, descriptor_metadata))
+    Ok((root.join(relative_path), file, metadata))
 }
 
 /// Capture one regular file beneath the explicitly supplied policy root.
@@ -83,9 +133,9 @@ fn open_source(allowed_root: &Path, requested_path: &Path) -> Result<(PathBuf, F
 pub fn capture(
     storage_root: &Path,
     allowed_root: &Path,
-    requested_path: &Path,
+    relative_path: &Path,
 ) -> Result<system_catalog::CatalogRecord, String> {
-    let (source_path, mut file, initial_metadata) = open_source(allowed_root, requested_path)?;
+    let (source_path, mut file, initial_metadata) = open_source(allowed_root, relative_path)?;
 
     let mut bytes = Vec::with_capacity(initial_metadata.len() as usize);
     file.seek(SeekFrom::Start(0))
@@ -148,7 +198,7 @@ mod tests {
         let contents = b"safe system configuration";
         fs::write(&source, contents).unwrap();
 
-        let record = capture(&storage, &policy, &source).unwrap();
+        let record = capture(&storage, &policy, Path::new("example.conf")).unwrap();
         assert_eq!(record.original_path, source);
         assert_eq!(record.original_size, contents.len() as u64);
         assert_eq!(system_store::get(&storage, &record.object_id).unwrap(), contents);
@@ -158,50 +208,44 @@ mod tests {
     }
 
     #[test]
-    fn rejects_paths_outside_the_policy_root() {
-        let base = temporary_root("outside");
-        let policy = base.join("allowed");
-        let storage = base.join("storage");
-        fs::create_dir(&policy).unwrap();
-        fs::create_dir(&storage).unwrap();
-        let outside = base.join("outside.conf");
-        fs::write(&outside, b"not allowed").unwrap();
-
-        assert!(capture(&storage, &policy, &outside).unwrap_err().contains("outside"));
-        fs::remove_dir_all(base).unwrap();
+    fn rejects_absolute_and_parent_traversal_paths() {
+        assert!(open_source(Path::new("/tmp"), Path::new("/etc/passwd")).is_err());
+        assert!(open_source(Path::new("/tmp"), Path::new("../etc/passwd")).is_err());
     }
 
     #[test]
-    fn rejects_symbolic_links() {
+    fn rejects_symbolic_links_in_every_path_component() {
         let base = temporary_root("symlink");
         let policy = base.join("allowed");
         let storage = base.join("storage");
         fs::create_dir(&policy).unwrap();
         fs::create_dir(&storage).unwrap();
-        let target = policy.join("target.conf");
-        let link = policy.join("link.conf");
+        let real_dir = policy.join("real");
+        fs::create_dir(&real_dir).unwrap();
+        let target = real_dir.join("target.conf");
         fs::write(&target, b"target").unwrap();
-        std::os::unix::fs::symlink(&target, &link).unwrap();
+        std::os::unix::fs::symlink(&real_dir, policy.join("linked-dir")).unwrap();
+        std::os::unix::fs::symlink(&target, policy.join("linked-file")).unwrap();
 
-        assert!(capture(&storage, &policy, &link).is_err());
+        assert!(capture(&storage, &policy, Path::new("linked-dir/target.conf")).is_err());
+        assert!(capture(&storage, &policy, Path::new("linked-file")).is_err());
         fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
-    fn rejects_directories_and_fifos() {
+    fn rejects_directories_and_fifos_without_blocking() {
         let base = temporary_root("special");
         let policy = base.join("allowed");
         let storage = base.join("storage");
         fs::create_dir(&policy).unwrap();
         fs::create_dir(&storage).unwrap();
-        let directory = policy.join("directory");
-        fs::create_dir(&directory).unwrap();
+        fs::create_dir(policy.join("directory")).unwrap();
         let fifo = policy.join("pipe");
-        let fifo_path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        let fifo_path = CString::new(fifo.as_os_str().as_bytes()).unwrap();
         assert_eq!(unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) }, 0);
 
-        assert!(capture(&storage, &policy, &directory).is_err());
-        assert!(capture(&storage, &policy, &fifo).is_err());
+        assert!(capture(&storage, &policy, Path::new("directory")).is_err());
+        assert!(capture(&storage, &policy, Path::new("pipe")).is_err());
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -216,7 +260,7 @@ mod tests {
         let file = File::create(&source).unwrap();
         file.set_len(MAX_CAPTURE_BYTES + 1).unwrap();
 
-        assert!(capture(&storage, &policy, &source).unwrap_err().contains("64 MiB"));
+        assert!(capture(&storage, &policy, Path::new("large")).unwrap_err().contains("64 MiB"));
         fs::remove_dir_all(base).unwrap();
     }
 
