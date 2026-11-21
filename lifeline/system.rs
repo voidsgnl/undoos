@@ -350,6 +350,11 @@ fn handle_request<R: Read, W: Write>(
 }
 
 fn handle_connection(mut stream: UnixStream) -> Result<(), String> {
+    // Retry a retained rollback transaction before serving any new request.
+    system_restore::recover_interrupted_restore(std::path::Path::new(
+        "/var/lib/lifeline/system",
+    ))?;
+
     // SO_PEERCRED is supplied by the kernel, not by client-controlled request
     // data. The socket's root:lifeline ownership and 0660 mode enforce the
     // connection allowlist; these credentials identify the accepted client.
