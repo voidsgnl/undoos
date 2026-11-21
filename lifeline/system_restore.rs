@@ -317,3 +317,54 @@ pub fn restore_hostname(root: &Path, object_id: &str) -> Result<String, String> 
     remove_pending(root)?;
     Ok(backup.object_id)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temporary_root(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "lifeline-system-restore-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        root
+    }
+
+    #[test]
+    fn persists_reads_and_clears_a_pending_restore_record() {
+        let root = temporary_root("pending-roundtrip");
+        let object_id = "0123456789abcdef0123456789abcdef";
+        write_pending(&root, object_id).unwrap();
+        assert_eq!(read_pending(&root).unwrap().as_deref(), Some(object_id));
+        remove_pending(&root).unwrap();
+        assert_eq!(read_pending(&root).unwrap(), None);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_a_corrupt_pending_restore_record() {
+        let root = temporary_root("pending-corrupt");
+        write_pending(&root, "0123456789abcdef0123456789abcdef").unwrap();
+        fs::write(pending_path(&root), b"LFRST001|0123456789abcdef0123456789abcdef|00000000\\n")
+            .unwrap();
+        assert!(read_pending(&root)
+            .unwrap_err()
+            .contains("checksum does not match"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn refuses_invalid_pending_object_ids() {
+        let root = temporary_root("pending-invalid-id");
+        assert!(write_pending(&root, "../etc/passwd").is_err());
+        assert!(!pending_path(&root).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+}
