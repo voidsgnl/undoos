@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn parses_process_start_time_with_spaces_and_closing_parentheses_in_name() {
         // Fields after the final ')' begin with field 3 (state); starttime is field 22.
-        let stat = "123 (a tricky ) process) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 987654 22 23";
+        let stat = "123 (a tricky ) process) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 987654 22 23";
         assert_eq!(process_start_time(123, stat).unwrap(), 987654);
     }
 
