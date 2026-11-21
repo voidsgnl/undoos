@@ -727,6 +727,124 @@ impl Watcher {
             }
         }
 
+        // Directory recovery can legitimately replace an inode. Reuse the
+        // identity recorded by the recovery transaction so the mode tracker
+        // does not mistake undo/redo for a new directory baseline.
+        let mut directory_events = HashMap::<u64, (String, String)>::new();
+        let mut directory_restores = HashMap::<u64, u64>::new();
+        let mut recovery_identities = HashMap::<String, (u64, String)>::new();
+
+        for entry in &entries {
+            match entry.kind.as_str() {
+                "dir_track" | "dir_deleted" => {
+                    directory_events.insert(
+                        entry.id,
+                        (entry.path.clone(), entry.kind.clone()),
+                    );
+                }
+                "dir_restore" => {
+                    let Ok(original_id) = entry.path.parse::<u64>() else {
+                        continue;
+                    };
+                    directory_restores.insert(entry.id, original_id);
+                    if let Some((path, original_kind)) = directory_events.get(&original_id) {
+                        if original_kind == "dir_deleted" && !entry.snapshot.is_empty() {
+                            recovery_identities.insert(
+                                path.clone(),
+                                (entry.id, entry.snapshot.clone()),
+                            );
+                        } else {
+                            recovery_identities.remove(path);
+                        }
+                    }
+                }
+                "dir_redo" => {
+                    let Ok(restore_id) = entry.path.parse::<u64>() else {
+                        continue;
+                    };
+                    if let Some(original_id) = directory_restores.get(&restore_id) {
+                        if let Some((path, original_kind)) = directory_events.get(original_id) {
+                            if original_kind == "dir_track" && !entry.snapshot.is_empty() {
+                                recovery_identities.insert(
+                                    path.clone(),
+                                    (entry.id, entry.snapshot.clone()),
+                                );
+                            } else {
+                                recovery_identities.remove(path);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // A crash may leave a create transaction pending after its staged
+        // directory has already been renamed into place. Its intent record
+        // contains the identity needed to recognize that legitimate inode.
+        for pending in entries.iter().filter(|entry| {
+            entry.kind == "dir_undo_pending" || entry.kind == "dir_redo_pending"
+        }) {
+            let is_undo = pending.kind == "dir_undo_pending";
+            let completed_kind = if is_undo { "dir_restore" } else { "dir_redo" };
+            let aborted_kind = if is_undo {
+                "dir_undo_abort"
+            } else {
+                "dir_redo_abort"
+            };
+            let resolved = entries.iter().any(|entry| {
+                entry.id > pending.id
+                    && (entry.kind == completed_kind || entry.kind == aborted_kind)
+                    && entry.path == pending.path
+            });
+            if resolved {
+                continue;
+            }
+
+            let Ok(reference_id) = pending.path.parse::<u64>() else {
+                continue;
+            };
+            let original_id = if is_undo {
+                Some(reference_id)
+            } else {
+                directory_restores.get(&reference_id).copied()
+            };
+            let Some(original_id) = original_id else {
+                continue;
+            };
+            let Some((path, original_kind)) = directory_events.get(&original_id) else {
+                continue;
+            };
+            let creates_directory = if is_undo {
+                original_kind == "dir_deleted"
+            } else {
+                original_kind == "dir_track"
+            };
+            if creates_directory && !pending.snapshot.is_empty() {
+                recovery_identities.insert(
+                    path.clone(),
+                    (pending.id, pending.snapshot.clone()),
+                );
+            }
+        }
+
+        for (path, (recovery_id, identity)) in recovery_identities {
+            let latest_mode_record = entries
+                .iter()
+                .filter(|entry| {
+                    entry.path == path
+                        && (entry.kind == "dir_mode" || entry.kind == "dir_mode_baseline")
+                })
+                .map(|entry| entry.id)
+                .max()
+                .unwrap_or(0);
+            if recovery_id > latest_mode_record {
+                if let Some((_, mode)) = known.get(&path).cloned() {
+                    known.insert(path, (identity, mode));
+                }
+            }
+        }
+
         let mut paths = seen.clone();
         paths.extend(self.roots.iter().cloned());
         let mut paths: Vec<PathBuf> = paths.into_iter().collect();
