@@ -9,10 +9,11 @@ fi
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 BINARY="$ROOT/target/release/lifeline-systemd"
+OBSERVER_BINARY="$ROOT/target/release/lifeline-system-observer"
 UNIT_DIR="/etc/systemd/system"
 
-if [ ! -x "$BINARY" ]; then
-    echo "Missing $BINARY. Build it first with: cargo build --release" >&2
+if [ ! -x "$BINARY" ] || [ ! -x "$OBSERVER_BINARY" ]; then
+    echo "Missing a system service binary. Build them first with: cargo build --release" >&2
     exit 1
 fi
 
@@ -41,9 +42,12 @@ else
     echo "Warning: no non-root invoking user detected; add your login to the lifeline group manually." >&2
 fi
 
+systemctl stop lifeline-system-observer.service 2>/dev/null || true
 install -D -o root -g root -m 0755 "$BINARY" /usr/local/libexec/lifeline-systemd
+install -D -o root -g root -m 0755 "$OBSERVER_BINARY" /usr/local/libexec/lifeline-system-observer
 install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline-system.socket" "$UNIT_DIR/lifeline-system.socket"
 install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline-system.service" "$UNIT_DIR/lifeline-system.service"
+install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline-system-observer.service" "$UNIT_DIR/lifeline-system-observer.service"
 install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline.conf" /etc/tmpfiles.d/lifeline.conf
 install -D -o root -g root -m 0644 "$ROOT/polkit/org.undoos.policy" /usr/share/polkit-1/actions/org.undoos.policy
 
@@ -51,10 +55,12 @@ systemctl stop lifeline-system.socket lifeline-system.service 2>/dev/null || tru
 systemctl daemon-reload
 systemd-tmpfiles --create /etc/tmpfiles.d/lifeline.conf
 systemctl enable --now lifeline-system.socket
+systemctl enable --now lifeline-system-observer.service
 
-echo "Installed the UndoOS privileged system service (status, hostname capture/history/restore)."
+echo "Installed the UndoOS privileged system service and automatic /etc/hostname observer."
 echo "The control socket is accessible to root and members of the lifeline group (0660)."
 if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
     echo "Log out and back in before using the lifeline system commands."
 fi
-echo "Check it with: systemctl status lifeline-system.socket"
+echo "Check the control socket with: systemctl status lifeline-system.socket"
+echo "Check automatic observation with: systemctl status lifeline-system-observer.service"
