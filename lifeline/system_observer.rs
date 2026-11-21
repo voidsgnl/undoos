@@ -70,8 +70,13 @@ fn read_current() -> Result<Vec<u8>, String> {
     let directory_metadata = directory
         .metadata()
         .map_err(|error| format!("cannot inspect {ROOT}: {error}"))?;
-    if !directory_metadata.is_dir() {
-        return Err(format!("{ROOT} is not a real directory"));
+    if !directory_metadata.is_dir()
+        || directory_metadata.uid() != 0
+        || directory_metadata.mode() & 0o022 != 0
+    {
+        return Err(format!(
+            "{ROOT} is not a root-owned directory with safe permissions"
+        ));
     }
     let name = std::ffi::CString::new(NAME).expect("fixed filename has no NUL");
     let fd = unsafe {
@@ -92,8 +97,14 @@ fn read_current() -> Result<Vec<u8>, String> {
     let before = file
         .metadata()
         .map_err(|error| format!("cannot inspect {TARGET}: {error}"))?;
-    if !before.is_file() || before.len() > MAX_FILE_BYTES {
-        return Err(format!("{TARGET} is not a supported regular file"));
+    if !before.is_file()
+        || before.uid() != 0
+        || before.nlink() != 1
+        || before.len() > MAX_FILE_BYTES
+    {
+        return Err(format!(
+            "{TARGET} is not a supported root-owned regular file"
+        ));
     }
 
     let mut bytes = Vec::with_capacity(before.len() as usize);
@@ -194,7 +205,11 @@ fn watch_etc() -> Result<File, String> {
     let file = unsafe { File::from_raw_fd(fd) };
     let directory = std::ffi::CString::new(ROOT).expect("fixed path has no NUL");
     let watch = unsafe {
-        libc::inotify_add_watch(file.as_raw_fd(), directory.as_ptr(), WATCH_MASK)
+        libc::inotify_add_watch(
+            file.as_raw_fd(),
+            directory.as_ptr(),
+            WATCH_MASK | libc::IN_DONT_FOLLOW | libc::IN_ONLYDIR,
+        )
     };
     if watch < 0 {
         return Err(format!(
