@@ -1,7 +1,8 @@
 //! Minimal root-owned system service for the future privileged recovery boundary.
 //!
-//! This first version deliberately supports only fixed, read-only health checks.
-//! It does not inspect files or perform privileged mutations.
+//! The service exposes fixed health checks and one administrator-authorized,
+//! exact-path capture operation. It does not accept arbitrary paths or commands,
+//! and it does not perform privileged restoration yet.
 
 use std::{
     env,
@@ -305,7 +306,7 @@ fn handle_connection(mut stream: UnixStream) -> Result<(), String> {
         peer.pid, peer.uid, peer.gid
     );
 
-    // This service still exposes only fixed, read-only health checks.
+    // Health checks are read-only; the sole capture request is separately authorized and path-bound.
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
         .map_err(|e| format!("cannot set request timeout: {e}"))?;
