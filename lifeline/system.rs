@@ -26,6 +26,9 @@ mod system_store;
 #[path = "system_catalog.rs"]
 mod system_catalog;
 
+#[path = "system_capture.rs"]
+mod system_capture;
+
 #[derive(Debug, PartialEq, Eq)]
 struct PeerCredentials {
     pid: libc::pid_t,
