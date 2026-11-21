@@ -1,6 +1,6 @@
 //! Client for the narrowly scoped privileged system service.
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     os::unix::net::UnixStream,
     time::Duration,
 };
