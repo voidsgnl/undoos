@@ -39,9 +39,11 @@ fi
 install -D -o root -g root -m 0755 "$BINARY" /usr/local/libexec/lifeline-systemd
 install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline-system.socket" "$UNIT_DIR/lifeline-system.socket"
 install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline-system.service" "$UNIT_DIR/lifeline-system.service"
+install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline.conf" /etc/tmpfiles.d/lifeline.conf
 
 systemctl stop lifeline-system.socket lifeline-system.service 2>/dev/null || true
 systemctl daemon-reload
+systemd-tmpfiles --create /etc/tmpfiles.d/lifeline.conf
 systemctl enable --now lifeline-system.socket
 
 echo "Installed the UndoOS system-service status endpoint."
