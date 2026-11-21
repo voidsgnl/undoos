@@ -66,7 +66,6 @@ fn encode_pending(pending: &Pending) -> String {
 }
 
 fn write_pending(root: &Path, pending: &Pending) -> Result<(), String> {
-    let path = pending_path(root);
     let temporary = root.join(".hostname-create.pending.tmp");
     if let Ok(metadata) = fs::symlink_metadata(&temporary) {
         if metadata.file_type().is_symlink()
@@ -210,7 +209,13 @@ pub fn recover_interrupted_restore(root: &Path) -> Result<(), String> {
     let directory = open_etc()?;
     let stage = stage_name(&pending.event_id);
     if pending.staged {
-        unlink_if_same(&directory, TARGET, pending.device, pending.inode)?;
+        // If the published path has since been replaced, preserve that newer
+        // file. The transaction's inode is no longer at the target.
+        if let Some(stat) = stat_at(&directory, TARGET)? {
+            if stat.st_dev as u64 == pending.device && stat.st_ino as u64 == pending.inode {
+                unlink_if_same(&directory, TARGET, pending.device, pending.inode)?;
+            }
+        }
         unlink_if_same(&directory, &stage, pending.device, pending.inode)?;
     } else if let Some(stat) = stat_at(&directory, &stage)? {
         if (stat.st_mode & libc::S_IFMT) != libc::S_IFREG || stat.st_uid != 0 || stat.st_nlink != 1 {
