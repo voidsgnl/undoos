@@ -59,7 +59,8 @@ Linux mechanisms such as inotify/fanotify, audit, filesystem journals, and packa
 - Package logs describe transactions but do not guarantee that reinstalling an old package version recreates all prior state.
 - A system service can change state through several interfaces, so observing only its unit file is insufficient.
 
-For every supported domain, UndoOS must capture enough prior state before it is lost, confirm the resulting state, and periodically reconcile its view with reality. If it cannot prove what happened, it must record uncertainty and refuse unsafe recovery rather than guess.
+For every supported domain, UndoOS must capture enough prior state before it is lost, confirm the resulting state, and periodically reconcile its view with reality. For file deletion, the history must represent absence explicitly; an empty file is a valid file state and must never be used as a deletion marker. Restoring a deleted file is a create operation with its own durable intent, no-overwrite conflict check, file sync, and parent-directory sync. Startup recovery must distinguish an originally absent target from an existing-file preimage so it never removes an unrelated file created by another process.
+ If it cannot prove what happened, it must record uncertainty and refuse unsafe recovery rather than guess.
 
 ## Recovery model: Wayback and Wayforward
 
