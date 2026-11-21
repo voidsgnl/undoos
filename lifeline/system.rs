@@ -434,6 +434,14 @@ mod tests {
     }
 
     #[test]
+    fn rejects_client_supplied_system_paths() {
+        let mut request = Cursor::new(b"CAPTURE /etc/passwd\\n".to_vec());
+        let mut response = Vec::new();
+        assert!(handle_request(&mut request, &mut response, None, None).is_err());
+        assert_eq!(response, b"ERROR unsupported-request\\n");
+    }
+
+    #[test]
     fn rejects_oversized_requests() {
         let mut request = Cursor::new(vec![b'A'; MAX_REQUEST_BYTES + 1]);
         let mut response = Vec::new();
