@@ -250,26 +250,41 @@ fn handle_request<R: Read, W: Write>(
             .write_all(b"OK system-service=ready protocol=1\n")
             .map_err(|e| format!("cannot send response: {e}")),
         b"CAPTURE-HOSTNAME" => {
-            let peer = peer.ok_or_else(|| "capture request has no authenticated client".to_string())?;
-            let storage_root = storage_root
-                .ok_or_else(|| "capture request has no protected storage root".to_string())?;
-            authorize_system_file_capture(peer)?;
-            let policy = system_capture::CapturePolicy::new(
-                std::path::Path::new("/etc"),
-                vec![std::path::PathBuf::from("hostname")],
-            )?;
-            let record = system_capture::capture(
-                storage_root,
-                &policy,
-                std::path::Path::new("hostname"),
-            )?;
-            let response = format!(
-                "OK captured object={} size={} path=/etc/hostname\n",
-                record.object_id, record.original_size
-            );
-            writer
-                .write_all(response.as_bytes())
-                .map_err(|e| format!("cannot send capture response: {e}"))
+            let result = (|| {
+                let peer = peer
+                    .ok_or_else(|| "capture request has no authenticated client".to_string())?;
+                let storage_root = storage_root
+                    .ok_or_else(|| "capture request has no protected storage root".to_string())?;
+                authorize_system_file_capture(peer)?;
+                let policy = system_capture::CapturePolicy::new(
+                    std::path::Path::new("/etc"),
+                    vec![std::path::PathBuf::from("hostname")],
+                )?;
+                system_capture::capture(
+                    storage_root,
+                    &policy,
+                    std::path::Path::new("hostname"),
+                )
+            })();
+
+            match result {
+                Ok(record) => {
+                    let response = format!(
+                        "OK captured object={} size={} path=/etc/hostname\n",
+                        record.object_id, record.original_size
+                    );
+                    writer
+                        .write_all(response.as_bytes())
+                        .map_err(|e| format!("cannot send capture response: {e}"))
+                }
+                Err(error) => {
+                    eprintln!("lifeline-systemd: system-file capture failed: {error}");
+                    writer
+                        .write_all(b"ERROR capture-failed\n")
+                        .map_err(|e| format!("cannot send capture error response: {e}"))?;
+                    Err("system-file capture request failed".to_string())
+                }
+            }
         }
         _ => {
             writer
@@ -406,8 +421,8 @@ mod tests {
         let mut request = Cursor::new(b"CAPTURE-HOSTNAME\n".to_vec());
         let mut response = Vec::new();
         let error = handle_request(&mut request, &mut response, None, None).unwrap_err();
-        assert!(error.contains("no authenticated client"));
-        assert!(response.is_empty());
+        assert!(error.contains("capture request failed"));
+        assert_eq!(response, b"ERROR capture-failed\n");
     }
 
     #[test]
