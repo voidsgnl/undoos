@@ -6,7 +6,7 @@ ListenStream=/run/lifeline/control.sock
 SocketUser=root
 SocketGroup=lifeline
 SocketMode=0660
-DirectoryMode=0700
+DirectoryMode=0711
 Accept=no
 RemoveOnStop=yes
 
