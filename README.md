@@ -66,7 +66,9 @@ See [docs/INSTALL.md](docs/INSTALL.md) for installation options, [docs/TESTING.m
 | `lifeline back <name>` | Rewind active saved changes after that marker |
 | `lifeline to <id>` | Rewind active saved changes after entry `#id` |
 | `lifeline system status` | Check the privileged system service through its local socket |
-| `lifeline system capture-hostname` | Capture the single approved system file, `/etc/hostname`, after administrator authentication |\n| `lifeline system history` | List the latest captured `/etc/hostname` versions |\n| `lifeline system restore <id>` | Restore a captured hostname version after administrator authentication |
+| `lifeline system capture-hostname` | Capture the single approved system file, `/etc/hostname`, after administrator authentication |
+| `lifeline system history` | List the 20 most recent captured `/etc/hostname` versions |
+| `lifeline system restore <id>` | Restore a catalogued `/etc/hostname` version after administrator authentication; first saves the current version |\n| `lifeline system history` | List the latest captured `/etc/hostname` versions |\n| `lifeline system restore <id>` | Restore a captured hostname version after administrator authentication |
 
 Full details: [docs/COMMANDS.md](docs/COMMANDS.md).
 
