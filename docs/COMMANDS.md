@@ -61,16 +61,41 @@ Same as `back`, but by entry number from `lifeline log`. `to 0` rewinds all acti
 
 ## `system capture-hostname`
 
-Capture the single system file currently approved for the first privileged capture test: `/etc/hostname`.
+Capture the single system file currently approved for privileged capture: `/etc/hostname`.
 
 ```console
 $ lifeline system capture-hostname
 Authentication is required to capture an approved system file.
-Captured /etc/hostname: 12 bytes
+Captured /etc/hostname: 7 bytes
 Recovery object: 0123456789abcdef0123456789abcdef
 ```
 
-The service—not the CLI—selects the path. It requires Polkit administrator authentication, checks the exact `/etc/hostname` allowlist, safely opens the file without following symlinks, stores and verifies its contents, and appends metadata to the protected system catalog. Repeating the command creates another immutable capture. This is capture evidence only; system-file restore and general path capture are not yet available.
+The service selects the path itself. It requires Polkit administrator authentication, checks the exact allowlist, safely opens the file without following symlinks, stores and verifies an immutable recovery object, and appends metadata to the protected catalog. Repeating the command creates another version.
+
+## `system history`
+
+Show up to the 20 most recent captured versions of `/etc/hostname`. Each row includes the recovery object ID, capture timestamp in Unix epoch nanoseconds, and original size.
+
+```console
+$ lifeline system history
+System file history: /etc/hostname
+0123456789abcdef0123456789abcdef  timestamp=1795260000000000000  size=7 bytes
+```
+
+## `system restore <id>`
+
+Restore a previously captured `/etc/hostname` version by its 32-character recovery object ID.
+
+```console
+$ lifeline system restore 0123456789abcdef0123456789abcdef
+Authentication is required to restore a protected system file.
+Restored /etc/hostname from recovery object: 0123456789abcdef0123456789abcdef
+Previous hostname saved as recovery object: fedcba9876543210fedcba9876543210
+```
+
+Before changing the file, the service captures the current contents as a new recovery object. It validates the selected object's catalog entry and integrity, refuses to follow symlinks or overwrite a file whose inode or metadata no longer matches the captured identity, and writes only to the fixed hostname path. A durable pending transaction record allows the service to restore the pre-change contents if the operation is interrupted; startup resolves that transaction before accepting requests. The file's inode, owner, group, and mode are preserved.
+
+This is an initial system-file recovery adapter, not general system-wide restore. Only `/etc/hostname` is accepted. Package, service, account, and general system-setting changes are not currently reversible.
 
 ## Environment variables
 
