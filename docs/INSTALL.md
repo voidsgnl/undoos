@@ -97,7 +97,7 @@ Add that prefix's `bin` directory to your PATH. Automatic systemd setup is only 
 
 ## Optional privileged system-service foundation
 
-UndoOS also includes an **early, opt-in system-service scaffold**. It is separate from the user-level file watcher and is not required for normal `lifeline` use.
+UndoOS includes an **early, opt-in system service**. It is separate from the user-level file watcher and is not required for ordinary file recovery.
 
 Build and install it:
 
@@ -105,39 +105,42 @@ Build and install it:
 make system-install
 ```
 
-This installs a root-owned systemd socket and service. The control socket is restricted to root (mode `0600`), the service checks the connecting process credentials, and its only supported request is a health check. It does not monitor system files, change system settings, or perform recovery operations yet. Ordinary user processes cannot connect to it.
+The installer creates a system group named `lifeline`, adds the invoking login to that group, installs the root-owned service, and enables its socket. The socket is owned by `root:lifeline` with mode `0660`. Its parent directory permits path traversal, while the socket permissions restrict who can connect.
 
-Check that the socket is enabled:
+After installation, **log out and back in** so your login receives the new group membership. Then check the socket:
 
 ```sh
 systemctl status lifeline-system.socket
 ```
 
-Test the health-check protocol:
+Check communication with the actual service:
 
 ```sh
-sudo python3 -c 'import socket; s=socket.socket(socket.AF_UNIX); s.connect("/run/lifeline/control.sock"); s.sendall(b"PING\n"); print(s.recv(64).decode(), end="")'
+lifeline system status
 ```
 
-Expected response:
+Expected output:
 
 ```text
-PONG
+System service: running
+Control protocol: version 1
 ```
 
-The first request starts the service through systemd socket activation. Inspect its messages with:
+This command sends a fixed, versioned, read-only status request over the Unix socket. The first request starts the service through systemd socket activation. The service currently accepts only health-check requests; it does not monitor system files, change system settings, or perform recovery operations. It does not accept shell commands or arbitrary filesystem paths.
+
+Inspect service messages with:
 
 ```sh
 sudo journalctl -u lifeline-system.service -n 30 --no-pager
 ```
 
-Remove this optional scaffold with:
+Remove this optional service with:
 
 ```sh
 make system-uninstall
 ```
 
-This removes the systemd units and service binary only. It does not remove the user daemon, configuration, journal, or recovery copies.
+Uninstallation removes the systemd units and service binary. It leaves the `lifeline` group in place and does not remove the user daemon, configuration, journal, or recovery copies.
 
 ## Where Lifeline stores data
 
