@@ -71,7 +71,7 @@ This requires more than expanding the current folder list or running the existin
 
 The implementation order is:
 
-1. Establish the privileged service, authorization boundary, IPC protocol, and system-owned storage. The first IPC step is now present: a hardened root-owned service, a `root:lifeline` socket restricted to mode `0660`, and a versioned read-only status request. The installer adds the invoking user to the `lifeline` group. Authorization for privileged mutations and protected system recovery storage are still outstanding.
+1. Establish the privileged service, authorization boundary, IPC protocol, and system-owned storage. The first IPC step is now present: a hardened root-owned service, a `root:lifeline` socket restricted to mode `0660`, a versioned read-only status request, and kernel-authenticated peer PID/UID/GID identification through `SO_PEERCRED`. The installer adds the invoking user to the `lifeline` group. The socket's group permissions authorize connection only; operation-specific authorization for privileged mutations and protected system recovery storage are still outstanding.
 2. Add carefully scoped system filesystem coverage with mount-boundary and virtual-filesystem exclusions.
 3. Add package-manager transaction capture and recovery.
 4. Add supported systemd service-state recovery.
