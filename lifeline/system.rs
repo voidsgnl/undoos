@@ -17,6 +17,9 @@ const SYSTEMD_LISTEN_FDS: &str = "LISTEN_FDS";
 const SYSTEMD_LISTEN_PID: &str = "LISTEN_PID";
 const MAX_REQUEST_BYTES: usize = 32;
 
+#[path = "system_storage.rs"]
+mod system_storage;
+
 #[derive(Debug, PartialEq, Eq)]
 struct PeerCredentials {
     pid: libc::pid_t,
@@ -255,6 +258,14 @@ fn main() {
     if unsafe { libc::geteuid() } != 0 {
         fail("must run as root through the system service");
     }
+
+    let storage_path = system_storage::verify().unwrap_or_else(|error| {
+        fail(&format!("system recovery storage is not secure: {error}"))
+    });
+    eprintln!(
+        "lifeline-systemd: verified protected system storage at {}",
+        storage_path.display()
+    );
 
     let listener = inherited_listener().unwrap_or_else(|error| fail(&error));
     eprintln!("lifeline-systemd: privileged control socket is ready (read-only status protocol)");
