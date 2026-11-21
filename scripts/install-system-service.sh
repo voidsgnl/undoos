@@ -8,12 +8,13 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+CLI_BINARY="$ROOT/target/release/lifeline"
 BINARY="$ROOT/target/release/lifeline-systemd"
 OBSERVER_BINARY="$ROOT/target/release/lifeline-system-observer"
 UNIT_DIR="/etc/systemd/system"
 
-if [ ! -x "$BINARY" ] || [ ! -x "$OBSERVER_BINARY" ]; then
-    echo "Missing a system service binary. Build them first with: cargo build --release" >&2
+if [ ! -x "$CLI_BINARY" ] || [ ! -x "$BINARY" ] || [ ! -x "$OBSERVER_BINARY" ]; then
+    echo "Missing an UndoOS binary. Build them first with: cargo build --release" >&2
     exit 1
 fi
 
@@ -43,6 +44,7 @@ else
 fi
 
 systemctl stop lifeline-system-observer.service 2>/dev/null || true
+install -D -o root -g root -m 0755 "$CLI_BINARY" /usr/local/bin/lifeline
 install -D -o root -g root -m 0755 "$BINARY" /usr/local/libexec/lifeline-systemd
 install -D -o root -g root -m 0755 "$OBSERVER_BINARY" /usr/local/libexec/lifeline-system-observer
 install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline-system.socket" "$UNIT_DIR/lifeline-system.socket"
