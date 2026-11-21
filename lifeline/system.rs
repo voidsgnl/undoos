@@ -64,6 +64,70 @@ fn peer_credentials(stream: &UnixStream) -> Result<PeerCredentials, String> {
     })
 }
 
+// This action is deliberately specific to restoring protected system files.
+// Other recovery domains must receive separate Polkit action IDs.
+const SYSTEM_FILE_RECOVERY_ACTION: &str = "org.undoos.system.recover-file";
+
+/// Extract Linux process start time (field 22 of /proc/<pid>/stat).
+/// The command name is parenthesized and may itself contain spaces or ')'.
+fn process_start_time(expected_pid: libc::pid_t, stat: &str) -> Result<u64, String> {
+    let close_paren = stat
+        .rfind(')')
+        .ok_or_else(|| "cannot parse client process information".to_string())?;
+    let reported_pid = stat[..stat.find(' ').unwrap_or(stat.len())]
+        .parse::<libc::pid_t>()
+        .map_err(|_| "cannot parse client process ID".to_string())?;
+    if reported_pid != expected_pid {
+        return Err("client process identity changed during authorization".to_string());
+    }
+
+    stat[close_paren + 1..]
+        .split_whitespace()
+        .nth(19)
+        .ok_or_else(|| "client process information is incomplete".to_string())?
+        .parse::<u64>()
+        .map_err(|_| "cannot parse client process start time".to_string())
+}
+
+/// Ask Polkit whether this exact kernel-identified process may restore a
+/// protected system file. This is not called by the current read-only API.
+#[allow(dead_code)]
+fn authorize_system_file_recovery(peer: &PeerCredentials) -> Result<(), String> {
+    let stat_path = format!("/proc/{}/stat", peer.pid);
+    let stat = std::fs::read_to_string(&stat_path)
+        .map_err(|error| format!("cannot verify client process identity: {error}"))?;
+    let start_time = process_start_time(peer.pid, &stat)?;
+    let subject = format!("{},{},{}", peer.pid, start_time, peer.uid);
+
+    let output = process::Command::new("/usr/bin/pkcheck")
+        .args([
+            "--action-id",
+            SYSTEM_FILE_RECOVERY_ACTION,
+            "--process",
+            &subject,
+            "--allow-user-interaction",
+        ])
+        .output()
+        .map_err(|error| format!("cannot start Polkit authorization check: {error}"))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    match output.status.code() {
+        Some(1) => Err("Polkit denied system-file recovery".to_string()),
+        Some(2) => Err(
+            "Polkit could not authorize the request: no suitable authentication agent is available"
+                .to_string(),
+        ),
+        Some(3) => Err("system-file recovery authorization was dismissed".to_string()),
+        code => Err(format!(
+            "Polkit authorization failed (exit code {code:?}): {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )),
+    }
+}
+
 fn fail(message: &str) -> ! {
     eprintln!("lifeline-systemd: {message}");
     process::exit(1);
@@ -224,6 +288,19 @@ mod tests {
         assert_eq!(peer.pid, unsafe { libc::getpid() });
         assert_eq!(peer.uid, unsafe { libc::geteuid() });
         assert_eq!(peer.gid, unsafe { libc::getegid() });
+    }
+
+    #[test]
+    fn parses_process_start_time_with_spaces_and_closing_parentheses_in_name() {
+        // Fields after the final ')' begin with field 3 (state); starttime is field 22.
+        let stat = "123 (a tricky ) process) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 987654 22 23";
+        assert_eq!(process_start_time(123, stat).unwrap(), 987654);
+    }
+
+    #[test]
+    fn rejects_a_different_pid_in_process_stat() {
+        let stat = "456 (client) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 987654";
+        assert!(process_start_time(123, stat).is_err());
     }
 
     #[test]
