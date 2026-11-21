@@ -15,4 +15,13 @@
       <allow_active>auth_admin</allow_active>
     </defaults>
   </action>
+  <action id="org.undoos.system.capture-file">
+    <description>Capture an approved system file for UndoOS recovery</description>
+    <message>Authentication is required to capture an approved system file.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+  </action>
 </policyconfig>
