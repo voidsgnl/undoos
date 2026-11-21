@@ -14,6 +14,8 @@ AmbientCapabilities=
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectSystem=strict
+# Allow writes only to UndoOS's dedicated system recovery store.
+ReadWritePaths=/var/lib/lifeline/system
 ProtectHome=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
