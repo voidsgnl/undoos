@@ -1,8 +1,8 @@
 //! Validation for UndoOS's root-owned system recovery storage.
- //!
- //! This module intentionally does not create, modify, or delete recovery data.
- //! The systemd-tmpfiles rule owns directory creation; the service only verifies
- //! that the fixed storage path has the expected ownership and permissions.
+//!
+//! This module intentionally does not create, modify, or delete recovery data.
+//! The systemd-tmpfiles rule owns directory creation; the service only verifies
+//! that the fixed storage path has the expected ownership and permissions.
 
 use std::{
     fs,
@@ -15,11 +15,7 @@ const ROOT_UID: u32 = 0;
 const PRIVATE_DIRECTORY_MODE: u32 = 0o700;
 
 /// Verify a directory without following a symlink at its final path component.
-fn verify_directory(
-    path: &Path,
-    expected_uid: u32,
-    exact_mode: Option<u32>,
-) -> Result<(), String> {
+fn verify_directory(path: &Path, expected_uid: u32, exact_mode: Option<u32>) -> Result<(), String> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
 
@@ -65,10 +61,7 @@ pub fn verify() -> Result<PathBuf, String> {
         (Path::new("/var"), None),
         (Path::new("/var/lib"), None),
         (Path::new("/var/lib/lifeline"), Some(PRIVATE_DIRECTORY_MODE)),
-        (
-            Path::new(SYSTEM_STORAGE_PATH),
-            Some(PRIVATE_DIRECTORY_MODE),
-        ),
+        (Path::new(SYSTEM_STORAGE_PATH), Some(PRIVATE_DIRECTORY_MODE)),
     ];
 
     for (path, exact_mode) in components {
@@ -83,10 +76,8 @@ mod tests {
     use super::*;
 
     fn temporary_directory(label: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "lifeline-storage-{label}-{}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("lifeline-storage-{label}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
         path
