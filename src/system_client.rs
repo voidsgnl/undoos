@@ -102,7 +102,7 @@ pub fn capture_hostname() -> Result<(), String> {
         )
     })?;
     stream
-        .set_read_timeout(Some(Duration::from_secs(30)))
+        .set_read_timeout(Some(Duration::from_secs(120)))
         .map_err(|error| format!("cannot set capture response timeout: {error}"))?;
     stream
         .set_write_timeout(Some(Duration::from_secs(2)))
