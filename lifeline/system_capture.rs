@@ -32,6 +32,14 @@ fn same_source_state(before: &fs::Metadata, after: &fs::Metadata) -> bool {
 }
 
 fn open_source(allowed_root: &Path, requested_path: &Path) -> Result<(PathBuf, File, fs::Metadata), String> {
+    // Inspect the caller-supplied final component before canonicalization:
+    // canonicalize alone would follow a symbolic link and hide that fact.
+    let requested_metadata = fs::symlink_metadata(requested_path)
+        .map_err(|error| format!("cannot inspect requested system file: {error}"))?;
+    if requested_metadata.file_type().is_symlink() {
+        return Err("symbolic-link capture requests are not permitted".to_string());
+    }
+
     let root = fs::canonicalize(allowed_root)
         .map_err(|error| format!("cannot resolve capture policy root: {error}"))?;
     let source = fs::canonicalize(requested_path)
