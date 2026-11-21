@@ -3,7 +3,7 @@
 //! The catalog records what an object represents without embedding file content.
 //! It is private to the system service and is not exposed over IPC yet.
 
-#![allow(dead_code)] // The catalog API will be consumed by the future recovery protocol.
+#![allow(dead_code)] // Some catalog fields are reserved for later recovery adapters.
 
 use std::{
     fs::{self, File, Metadata, OpenOptions},
