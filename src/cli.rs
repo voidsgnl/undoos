@@ -15,6 +15,7 @@ COMMANDS:
     checkpoint <name>    Drop a named marker in the timeline
     back <name>          Rewind saved changes after a checkpoint
     to <id>              Rewind saved changes after entry #id
+    system status        Check the privileged system service
     help                 Show this message
     --version            Show the version";
 pub enum Command {
@@ -27,6 +28,7 @@ pub enum Command {
     Checkpoint(String),
     Back(String),
     To(String),
+    SystemStatus,
 }
 fn arg(a: &[String], u: &str) -> Result<String, String> {
     a.get(1).cloned().ok_or_else(|| format!("usage: {u}"))
@@ -42,10 +44,15 @@ pub fn parse(a: &[String]) -> Result<Command, String> {
         Some("checkpoint") => arg(a, "lifeline checkpoint <name>").map(Command::Checkpoint),
         Some("back") => arg(a, "lifeline back <name>").map(Command::Back),
         Some("to") => arg(a, "lifeline to <id>").map(Command::To),
+        Some("system") if a.len() == 2 && a[1] == "status" => Ok(Command::SystemStatus),
+        Some("system") => Err("usage: lifeline system status".to_string()),
         Some(x) => Err(format!("unknown command: {x}")),
     }
 }
 pub fn run(cmd: Command) -> Result<(), String> {
+    if matches!(&cmd, Command::SystemStatus) {
+        return crate::system_client::status();
+    }
     if matches!(cmd, Command::Help | Command::Version) {
         return match cmd {
             Command::Help => {
@@ -64,7 +71,7 @@ pub fn run(cmd: Command) -> Result<(), String> {
     let _state_lock = StateLock::acquire()?;
     restore::reconcile_pending()?;
     match cmd {
-        Command::Help | Command::Version => unreachable!(),
+        Command::Help | Command::Version | Command::SystemStatus => unreachable!(),
         Command::Log => {
             let es = journal::read_all()?;
             if es.is_empty() {
