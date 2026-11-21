@@ -117,6 +117,60 @@ pub fn initialize(root: &Path) -> Result<(), String> {
     verify_private_directory(&objects, uid)
 }
 
+/// A read-only inventory of published objects and interrupted temporary files.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StoreInventory {
+    pub object_ids: Vec<String>,
+    pub temporary_ids: Vec<String>,
+}
+
+/// Enumerate the object directory without deleting or modifying anything.
+/// Unknown names, symlinks, and unsafe file metadata fail closed.
+pub fn inventory(root: &Path) -> Result<StoreInventory, String> {
+    initialize(root)?;
+    let directory = objects_directory(root);
+    let expected_uid = unsafe { libc::geteuid() };
+    let mut inventory = StoreInventory::default();
+
+    for entry in fs::read_dir(&directory)
+        .map_err(|error| format!("cannot enumerate recovery objects: {error}"))?
+    {
+        let entry = entry.map_err(|error| format!("cannot read recovery object entry: {error}"))?;
+        let name = entry.file_name();
+        let name = name.to_str()
+            .ok_or_else(|| "recovery object directory contains a non-UTF-8 entry name".to_string())?;
+        let metadata = fs::symlink_metadata(entry.path())
+            .map_err(|error| format!("cannot inspect recovery object entry: {error}"))?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(format!("recovery object entry {name} is not a regular file"));
+        }
+        if metadata.uid() != expected_uid
+            || metadata.permissions().mode() & 0o777 != PRIVATE_FILE_MODE
+        {
+            return Err(format!("recovery object entry {name} has unsafe ownership or permissions"));
+        }
+
+        if let Ok(id) = ObjectId::parse(name) {
+            if metadata.len() < HEADER_LENGTH as u64
+                || metadata.len() > MAX_OBJECT_BYTES + HEADER_LENGTH as u64
+            {
+                return Err(format!("recovery object {name} has an invalid size"));
+            }
+            inventory.object_ids.push(id.as_str().to_string());
+        } else if let Some(value) = name.strip_prefix(".tmp-") {
+            let id = ObjectId::parse(value)
+                .map_err(|_| format!("unknown entry in recovery object directory: {name}"))?;
+            inventory.temporary_ids.push(id.as_str().to_string());
+        } else {
+            return Err(format!("unknown entry in recovery object directory: {name}"));
+        }
+    }
+
+    inventory.object_ids.sort();
+    inventory.temporary_ids.sort();
+    Ok(inventory)
+}
+
 /// CRC-32/ISO-HDLC detects accidental corruption of stored recovery bytes.
 /// Root-only ownership and permissions provide the access-control boundary.
 fn checksum(bytes: &[u8]) -> u32 {
