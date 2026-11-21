@@ -21,6 +21,11 @@ if ! command -v systemctl >/dev/null 2>&1; then
     exit 1
 fi
 
+if [ ! -x /usr/bin/pkcheck ]; then
+    echo "Polkit is required for the system authorization foundation. Install the 'polkitd' package first." >&2
+    exit 1
+fi
+
 if ! getent group lifeline >/dev/null 2>&1; then
     groupadd --system lifeline
 fi
@@ -40,6 +45,7 @@ install -D -o root -g root -m 0755 "$BINARY" /usr/local/libexec/lifeline-systemd
 install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline-system.socket" "$UNIT_DIR/lifeline-system.socket"
 install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline-system.service" "$UNIT_DIR/lifeline-system.service"
 install -D -o root -g root -m 0644 "$ROOT/systemd/lifeline.conf" /etc/tmpfiles.d/lifeline.conf
+install -D -o root -g root -m 0644 "$ROOT/polkit/org.undoos.policy" /usr/share/polkit-1/actions/org.undoos.policy
 
 systemctl stop lifeline-system.socket lifeline-system.service 2>/dev/null || true
 systemctl daemon-reload
