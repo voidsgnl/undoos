@@ -30,6 +30,7 @@ const ROOT: &str = "/etc";
 const NAME: &[u8] = b"hostname";
 const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const EVENT_BUFFER_BYTES: usize = 16 * 1024;
+const RECONCILE_INTERVAL_MS: i32 = 30_000;
 const WATCH_MASK: u32 = libc::IN_CLOSE_WRITE
     | libc::IN_MOVED_TO
     | libc::IN_ATTRIB
@@ -250,6 +251,48 @@ fn run() -> Result<(), String> {
 
     let mut buffer = vec![0_u8; EVENT_BUFFER_BYTES];
     loop {
+        // Inotify is the fast path. Periodic reconciliation is the safety net:
+        // it repairs the latest known state if an event was missed or the
+        // observer was unable to process it. It cannot reconstruct intermediate
+        // versions that were overwritten before reconciliation.
+        let mut descriptor = libc::pollfd {
+            fd: watcher.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let ready = loop {
+            let result = unsafe {
+                libc::poll(&mut descriptor, 1, RECONCILE_INTERVAL_MS)
+            };
+            if result >= 0 {
+                break result;
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(format!("cannot wait for filesystem events: {error}"));
+        };
+
+        if ready == 0 {
+            match observe_current(&storage_root) {
+                Ok(true) => eprintln!(
+                    "lifeline-system-observer: periodic reconciliation recorded {TARGET}"
+                ),
+                Ok(false) => {}
+                Err(error) => eprintln!(
+                    "lifeline-system-observer: periodic reconciliation unavailable: {error}"
+                ),
+            }
+            continue;
+        }
+        if descriptor.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+            return Err("inotify descriptor reported an unrecoverable poll condition".to_string());
+        }
+        if descriptor.revents & libc::POLLIN == 0 {
+            continue;
+        }
+
         let count = loop {
             match watcher.read(&mut buffer) {
                 Ok(count) => break count,
