@@ -23,6 +23,9 @@ mod system_storage;
 #[path = "system_store.rs"]
 mod system_store;
 
+#[path = "system_catalog.rs"]
+mod system_catalog;
+
 #[derive(Debug, PartialEq, Eq)]
 struct PeerCredentials {
     pid: libc::pid_t,
@@ -267,6 +270,9 @@ fn main() {
     });
     system_store::initialize(&storage_path).unwrap_or_else(|error| {
         fail(&format!("cannot initialize protected system object storage: {error}"))
+    });
+    system_catalog::read_all(&storage_path).unwrap_or_else(|error| {
+        fail(&format!("system recovery catalog is invalid: {error}"))
     });
     eprintln!(
         "lifeline-systemd: verified protected system storage at {}",
