@@ -100,7 +100,10 @@ pub fn run(cmd: Command) -> Result<(), String> {
                     "dir_mode" => {
                         let new_mode = e.snapshot.rsplit(':').next().unwrap_or("unknown");
                         let old_mode = e.snapshot.rsplit(':').nth(1).unwrap_or("unknown");
-                        format!("Restore permissions on {} from {} to {}?", e.path, new_mode, old_mode)
+                        format!(
+                            "Restore permissions on {} from {} to {}?",
+                            e.path, new_mode, old_mode
+                        )
                     }
                     _ if guard::would_overwrite(&e.path) => format!(
                         "Restore {} to its saved version? The current version will be overwritten.",
@@ -117,14 +120,12 @@ pub fn run(cmd: Command) -> Result<(), String> {
                             "Moved {} back to {}. Original history kept.",
                             e.snapshot, e.path
                         ),
-                        "dir_track" => println!(
-                            "Removed empty directory {}. Original history kept.",
-                            e.path
-                        ),
-                        "dir_deleted" => println!(
-                            "Recreated directory {}. Original history kept.",
-                            e.path
-                        ),
+                        "dir_track" => {
+                            println!("Removed empty directory {}. Original history kept.", e.path)
+                        }
+                        "dir_deleted" => {
+                            println!("Recreated directory {}. Original history kept.", e.path)
+                        }
                         "dir_mode" => println!(
                             "Restored directory permissions on {}. Original history kept.",
                             e.path
