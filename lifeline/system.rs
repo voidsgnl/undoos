@@ -264,7 +264,7 @@ fn handle_request<R: Read, W: Write>(
             hostname_records.sort_by_key(|record| record.captured_at_ns);
             let start = hostname_records.len().saturating_sub(20);
             let selected = &hostname_records[start..];
-            let mut response = format!("OK history count={}\\n", selected.len());
+            let mut response = format!("OK history count={}\n", selected.len());
             for record in selected {
                 use std::fmt::Write as _;
                 writeln!(
@@ -289,7 +289,7 @@ fn handle_request<R: Read, W: Write>(
                 .and_then(|()| system_restore::restore_hostname(storage_root, object_id));
             match result {
                 Ok(backup_id) => {
-                    let response = format!("OK restored backup={backup_id}\\n");
+                    let response = format!("OK restored backup={backup_id}\n");
                     writer
                         .write_all(response.as_bytes())
                         .map_err(|error| format!("cannot send restore response: {error}"))
@@ -297,7 +297,7 @@ fn handle_request<R: Read, W: Write>(
                 Err(error) => {
                     eprintln!("lifeline-systemd: system-file restore failed: {error}");
                     writer
-                        .write_all(b"ERROR restore-failed\\n")
+                        .write_all(b"ERROR restore-failed\n")
                         .map_err(|write_error| format!("cannot send restore error: {write_error}"))?;
                     Err("system-file restore request failed".to_string())
                 }
