@@ -359,7 +359,7 @@ fn handle_connection(mut stream: UnixStream) -> Result<(), String> {
         peer.pid, peer.uid, peer.gid
     );
 
-    // Health checks are read-only; the sole capture request is separately authorized and path-bound.
+    // Health and history are read-only; capture and restore are separately authorized and path-bound.
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
         .map_err(|e| format!("cannot set request timeout: {e}"))?;
