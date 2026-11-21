@@ -2,7 +2,7 @@
 //!
 //! The service exposes fixed health checks and one administrator-authorized,
 //! exact-path capture operation. It does not accept arbitrary paths or commands,
-//! and it does not perform privileged restoration yet.
+//! and its first restore adapter is restricted to the same fixed hostname file.
 
 use std::{
     env,
@@ -15,7 +15,7 @@ use std::{
 
 const SYSTEMD_LISTEN_FDS: &str = "LISTEN_FDS";
 const SYSTEMD_LISTEN_PID: &str = "LISTEN_PID";
-const MAX_REQUEST_BYTES: usize = 32;
+const MAX_REQUEST_BYTES: usize = 64;
 
 #[path = "system_storage.rs"]
 mod system_storage;
@@ -31,6 +31,9 @@ mod system_capture;
 
 #[path = "system_reconcile.rs"]
 mod system_reconcile;
+
+#[path = "system_restore.rs"]
+mod system_restore;
 
 #[derive(Debug, PartialEq, Eq)]
 struct PeerCredentials {
@@ -250,6 +253,56 @@ fn handle_request<R: Read, W: Write>(
         b"STATUS" => writer
             .write_all(b"OK system-service=ready protocol=1\n")
             .map_err(|e| format!("cannot send response: {e}")),
+        b"HISTORY-HOSTNAME" => {
+            let records = system_catalog::read_all(
+                storage_root.ok_or_else(|| "history request has no protected storage root".to_string())?
+            )?;
+            let mut hostname_records = records
+                .into_iter()
+                .filter(|record| record.original_path == std::path::Path::new("/etc/hostname"))
+                .collect::<Vec<_>>();
+            hostname_records.sort_by_key(|record| record.captured_at_ns);
+            let start = hostname_records.len().saturating_sub(20);
+            let selected = &hostname_records[start..];
+            let mut response = format!("OK history count={}\\n", selected.len());
+            for record in selected {
+                use std::fmt::Write as _;
+                writeln!(
+                    &mut response,
+                    "{}|{}|{}",
+                    record.object_id, record.captured_at_ns, record.original_size
+                )
+                .expect("writing to a String cannot fail");
+            }
+            writer
+                .write_all(response.as_bytes())
+                .map_err(|error| format!("cannot send system history: {error}"))
+        }
+        request if request.starts_with(b"RESTORE-HOSTNAME ") => {
+            let peer = peer
+                .ok_or_else(|| "restore request has no authenticated client".to_string())?;
+            let storage_root = storage_root
+                .ok_or_else(|| "restore request has no protected storage root".to_string())?;
+            let object_id = std::str::from_utf8(&request[b"RESTORE-HOSTNAME ".len()..])
+                .map_err(|_| "restore request contains an invalid object ID".to_string())?;
+            let result = authorize_system_file_recovery(peer)
+                .and_then(|()| system_restore::restore_hostname(storage_root, object_id));
+            match result {
+                Ok(backup_id) => {
+                    let response = format!("OK restored backup={backup_id}\\n");
+                    writer
+                        .write_all(response.as_bytes())
+                        .map_err(|error| format!("cannot send restore response: {error}"))
+                }
+                Err(error) => {
+                    eprintln!("lifeline-systemd: system-file restore failed: {error}");
+                    writer
+                        .write_all(b"ERROR restore-failed\\n")
+                        .map_err(|write_error| format!("cannot send restore error: {write_error}"))?;
+                    Err("system-file restore request failed".to_string())
+                }
+            }
+        }
         b"CAPTURE-HOSTNAME" => {
             let result = (|| {
                 let peer = peer
@@ -342,6 +395,8 @@ fn main() {
             "system recovery storage reconciliation failed: {error}"
         ))
     });
+    system_restore::recover_interrupted_restore(&storage_path)
+        .unwrap_or_else(|error| fail(&format!("cannot recover interrupted system-file restore: {error}")));
     eprintln!(
         "lifeline-systemd: recovery store verified: {} catalog records; {} orphaned objects; {} interrupted temporary files",
         reconciliation.catalog_records,
