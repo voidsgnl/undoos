@@ -10,14 +10,17 @@ use std::{
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
+
 };
 
 const LOG_NAME: &str = "deletions.log";
-const PREFIX: &str = "LFDEL001";
+const PREFIX: &str = "LFDEL002";
+const LEGACY_PREFIX: &str = "LFDEL001";
 const MAX_LOG_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeletionRecord {
+    pub event_id: String,
     pub deleted_at_ns: u128,
     pub previous_object_id: String,
 }
@@ -47,24 +50,31 @@ fn valid_id(value: &str) -> bool {
 
 fn parse_line(line: &str) -> Result<DeletionRecord, String> {
     let fields = line.split('|').collect::<Vec<_>>();
-    if fields.len() != 4 || fields[0] != PREFIX {
-        return Err("deletion record has an unknown format".to_string());
-    }
-    let timestamp = fields[1]
-        .parse::<u128>()
+    let (event_id, timestamp_field, object_field, checksum_field, payload) = match fields.as_slice() {
+        [prefix, timestamp, object_id, checksum_field] if *prefix == LEGACY_PREFIX => (
+            String::new(), *timestamp, *object_id, *checksum_field,
+            format!("{LEGACY_PREFIX}|{timestamp}|{object_id}"),
+        ),
+        [prefix, event_id, timestamp, object_id, checksum_field] if *prefix == PREFIX && valid_id(event_id) => (
+            (*event_id).to_string(), *timestamp, *object_id, *checksum_field,
+            format!("{PREFIX}|{event_id}|{timestamp}|{object_id}"),
+        ),
+        _ => return Err("deletion record has an unknown format".to_string()),
+    };
+    let timestamp = timestamp_field.parse::<u128>()
         .map_err(|_| "deletion record has an invalid timestamp")?;
-    if !valid_id(fields[2]) {
+    if !valid_id(object_field) {
         return Err("deletion record has an invalid preceding object ID".to_string());
     }
-    let payload = format!("{PREFIX}|{}|{}", fields[1], fields[2]);
-    let expected = u32::from_str_radix(fields[3], 16)
+    let expected = u32::from_str_radix(checksum_field, 16)
         .map_err(|_| "deletion record has an invalid checksum")?;
     if checksum(payload.as_bytes()) != expected {
         return Err("deletion record checksum does not match".to_string());
     }
     Ok(DeletionRecord {
+        event_id,
         deleted_at_ns: timestamp,
-        previous_object_id: fields[2].to_string(),
+        previous_object_id: object_field.to_string(),
     })
 }
 
@@ -139,7 +149,12 @@ pub fn append(root: &Path, previous_object_id: &str) -> Result<DeletionRecord, S
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("system clock is before the Unix epoch: {error}"))?
         .as_nanos();
-    let payload = format!("{PREFIX}|{timestamp}|{previous_object_id}");
+    let mut random_id = [0_u8; 16];
+    File::open("/dev/urandom")
+        .and_then(|mut random| random.read_exact(&mut random_id))
+        .map_err(|error| format!("cannot generate a deletion event ID: {error}"))?;
+    let event_id = random_id.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let payload = format!("{PREFIX}|{event_id}|{timestamp}|{previous_object_id}");
     let line = format!("{payload}|{:08x}\n", checksum(payload.as_bytes()));
     let mut file = open_log(root)?;
     let lock = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
@@ -163,7 +178,7 @@ pub fn append(root: &Path, previous_object_id: &str) -> Result<DeletionRecord, S
         File::open(root)
             .and_then(|directory| directory.sync_all())
             .map_err(|error| format!("cannot sync deletion history directory: {error}"))?;
-        Ok(DeletionRecord { deleted_at_ns: timestamp, previous_object_id: previous_object_id.to_string() })
+        Ok(DeletionRecord { event_id, deleted_at_ns: timestamp, previous_object_id: previous_object_id.to_string() })
     })();
     unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN); }
     result
@@ -187,7 +202,8 @@ mod tests {
         let root = root("roundtrip");
         let id = "0123456789abcdef0123456789abcdef";
         let event = append(&root, id).unwrap();
-        assert_eq!(read_all(&root).unwrap(), vec![event]);
+        assert_eq!(read_all(&root).unwrap(), vec![event.clone()]);
+        assert_eq!(event.event_id.len(), 32);
         fs::remove_dir_all(root).unwrap();
     }
 
