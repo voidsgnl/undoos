@@ -74,7 +74,7 @@ pub fn capture_hostname() -> Result<(), String> {
         .set_write_timeout(Some(Duration::from_secs(2)))
         .map_err(|error| format!("cannot set capture request timeout: {error}"))?;
     stream
-        .write_all(b"CAPTURE-HOSTNAME\\n")
+        .write_all(b"CAPTURE-HOSTNAME\n")
         .map_err(|error| format!("cannot send system capture request: {error}"))?;
 
     let mut response = String::new();
