@@ -30,7 +30,8 @@ Redid the undo of entry #1.
 | Independent empty-directory undo/redo | Implemented |
 | Directory permission-mode detection and undo/redo | Implemented |
 | User-level systemd service setup | Works where systemd user services are available |
-| Privileged system-service socket and read-only status check | Implemented |\n| Administrator-authorized capture of the fixed `/etc/hostname` path | Initial end-to-end capture operation implemented; no system-file restore yet |
+| Privileged system-service socket and read-only status check | Implemented |
+| Administrator-authorized capture of the fixed `/etc/hostname` path | Initial end-to-end capture operation implemented; no system-file restore yet |
 | Package installs and removals | Planned |
 | System settings and dotfiles | Planned |
 | Space-saving snapshots (dedup/deltas) | Planned |
