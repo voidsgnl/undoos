@@ -23,7 +23,7 @@ The product should feel like a safety net, not a system-administration tool that
 The current prototype provides:
 
 - A Rust command-line application named `lifeline` and a background `lifeline-daemon`.
-- An opt-in root-owned systemd socket/service with typed status, capture, history, and restore operations restricted to `/etc/hostname`.
+- An opt-in root-owned systemd socket/service with typed status, capture, history, and restore operations restricted to `/etc/hostname`, including separate deletion-event history and a crash-recoverable recreation path now under validation.
 - A separate root-owned inotify observer that automatically establishes a hostname baseline, captures completed content writes and atomic replacements of `/etc/hostname`, and periodically reconciles the latest file state as a fallback when events are missed.
 - Configurable watched folders, with `~/Documents` as the default.
 - File baselines and saved copies for observed file changes and deletions.
@@ -52,9 +52,9 @@ The completed capability now:
 
 A directory tree is not one atomic transaction: its individual directory and file events are reversed in timeline order.
 
-## Next system recovery milestone: deletion and recreation
+## In-progress system recovery milestone: deletion and recreation
 
-Before adding more protected system paths, complete deletion recovery for the existing `/etc/hostname` adapter. This is a separate recovery state, not an empty-file snapshot. The implementation must:
+Before adding more protected system paths, finish validating deletion recovery for the existing `/etc/hostname` adapter. This is a separate recovery state, not an empty-file snapshot. The current implementation includes checksummed deletion events with stable IDs, legacy event-log parsing, history display, and a staged no-overwrite recreation transaction. These changes are not considered complete until the full safety matrix below passes. The implementation must:
 
 1. Persist an explicit, checksummed deletion event in the append-only system history while retaining the preceding content object.
 2. Distinguish a genuinely missing target from permission errors, I/O errors, an unavailable `/etc`, or an unsafe replacement such as a symlink. Only confirmed `ENOENT` for the exact allowlisted entry is a deletion.
@@ -86,7 +86,7 @@ This requires more than expanding the current folder list or running the existin
 The implementation order is:
 
 1. Establish the privileged service, authorization boundary, IPC protocol, and system-owned storage. **Foundation implemented.** The root-owned socket service uses `SO_PEERCRED`, Polkit for user-requested capture and restore, protected object storage, an append-only catalog, and crash reconciliation. Its typed operations are restricted to `/etc/hostname`.
-2. Add carefully scoped system filesystem coverage with mount-boundary and virtual-filesystem exclusions. **Initial one-file prototype implemented:** a separate root-owned inotify observer establishes a baseline and records completed writes or atomic replacements of `/etc/hostname`. It does not yet observe deletion, metadata-only changes, arbitrary paths, or every intermediate version when events coalesce or the queue overflows. General filesystem coverage, mount-boundary handling, and broader exclusions remain future work.
+2. Add carefully scoped system filesystem coverage with mount-boundary and virtual-filesystem exclusions. **Initial one-file prototype implemented:** a separate root-owned inotify observer establishes a baseline and records completed writes or atomic replacements of `/etc/hostname`. It now records confirmed deletion events for the exact hostname entry, but does not guarantee metadata-only changes or every intermediate version when events coalesce or the queue overflows. Deletion recreation is still being validated. It does not observe arbitrary paths. General filesystem coverage, mount-boundary handling, and broader exclusions remain future work.
 3. Add package-manager transaction capture and recovery.
 4. Add supported systemd service-state recovery.
 5. Add settings, account, ownership, ACL, and other domains only when their previous state can be captured and safely restored.
