@@ -746,7 +746,8 @@ impl Watcher {
                     directory_restores.insert(entry.id, original_id);
                     if let Some((path, original_kind)) = directory_events.get(&original_id) {
                         if original_kind == "dir_deleted" && !entry.snapshot.is_empty() {
-                            recovery_identities.insert(path.clone(), (entry.id, entry.snapshot.clone()));
+                            recovery_identities
+                                .insert(path.clone(), (entry.id, entry.snapshot.clone()));
                         } else {
                             recovery_identities.remove(path);
                         }
@@ -759,10 +760,8 @@ impl Watcher {
                     if let Some(original_id) = directory_restores.get(&restore_id) {
                         if let Some((path, original_kind)) = directory_events.get(original_id) {
                             if original_kind == "dir_track" && !entry.snapshot.is_empty() {
-                                recovery_identities.insert(
-                                    path.clone(),
-                                    (entry.id, entry.snapshot.clone()),
-                                );
+                                recovery_identities
+                                    .insert(path.clone(), (entry.id, entry.snapshot.clone()));
                             } else {
                                 recovery_identities.remove(path);
                             }
@@ -776,9 +775,10 @@ impl Watcher {
         // A crash may leave a create transaction pending after its staged
         // directory has already been renamed into place. Its intent record
         // contains the identity needed to recognize that legitimate inode.
-        for pending in entries.iter().filter(|entry| {
-            entry.kind == "dir_undo_pending" || entry.kind == "dir_redo_pending"
-        }) {
+        for pending in entries
+            .iter()
+            .filter(|entry| entry.kind == "dir_undo_pending" || entry.kind == "dir_redo_pending")
+        {
             let is_undo = pending.kind == "dir_undo_pending";
             let completed_kind = if is_undo { "dir_restore" } else { "dir_redo" };
             let aborted_kind = if is_undo {
