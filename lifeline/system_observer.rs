@@ -194,6 +194,32 @@ fn relevant_event(buffer: &[u8]) -> Result<bool, String> {
     Ok(relevant)
 }
 
+
+fn poll_readable(fd: i32, timeout_ms: i32) -> Result<bool, String> {
+    let mut descriptor = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    loop {
+        let result = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+        if result < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(format!("cannot wait for filesystem events: {error}"));
+        }
+        if result == 0 {
+            return Ok(false);
+        }
+        if descriptor.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+            return Err("inotify descriptor reported an unrecoverable poll condition".to_string());
+        }
+        return Ok(descriptor.revents & libc::POLLIN != 0);
+    }
+}
+
 fn watch_etc() -> Result<File, String> {
     let fd = unsafe { libc::inotify_init1(libc::IN_CLOEXEC) };
     if fd < 0 {
@@ -255,26 +281,7 @@ fn run() -> Result<(), String> {
         // it repairs the latest known state if an event was missed or the
         // observer was unable to process it. It cannot reconstruct intermediate
         // versions that were overwritten before reconciliation.
-        let mut descriptor = libc::pollfd {
-            fd: watcher.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        let ready = loop {
-            let result = unsafe {
-                libc::poll(&mut descriptor, 1, RECONCILE_INTERVAL_MS)
-            };
-            if result >= 0 {
-                break result;
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(format!("cannot wait for filesystem events: {error}"));
-        };
-
-        if ready == 0 {
+        if !poll_readable(watcher.as_raw_fd(), RECONCILE_INTERVAL_MS)? {
             match observe_current(&storage_root) {
                 Ok(true) => eprintln!(
                     "lifeline-system-observer: periodic reconciliation recorded {TARGET}"
@@ -286,13 +293,6 @@ fn run() -> Result<(), String> {
             }
             continue;
         }
-        if descriptor.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
-            return Err("inotify descriptor reported an unrecoverable poll condition".to_string());
-        }
-        if descriptor.revents & libc::POLLIN == 0 {
-            continue;
-        }
-
         let count = loop {
             match watcher.read(&mut buffer) {
                 Ok(count) => break count,
@@ -345,6 +345,24 @@ mod tests {
         bytes.extend_from_slice(&(field.len() as u32).to_ne_bytes());
         bytes.extend_from_slice(&field);
         bytes
+    }
+
+
+    #[test]
+    fn periodic_poll_wait_distinguishes_timeout_from_readiness() {
+        use std::io::Write;
+
+        let mut descriptors = [-1_i32; 2];
+        let result = unsafe { libc::pipe2(descriptors.as_mut_ptr(), libc::O_CLOEXEC) };
+        assert_eq!(result, 0);
+
+        // SAFETY: pipe2 returned two newly owned descriptors.
+        let reader = unsafe { File::from_raw_fd(descriptors[0]) };
+        let mut writer = unsafe { File::from_raw_fd(descriptors[1]) };
+        assert!(!poll_readable(reader.as_raw_fd(), 0).unwrap());
+
+        writer.write_all(b"x").unwrap();
+        assert!(poll_readable(reader.as_raw_fd(), 100).unwrap());
     }
 
     #[test]
