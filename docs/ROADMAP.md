@@ -52,6 +52,19 @@ The completed capability now:
 
 A directory tree is not one atomic transaction: its individual directory and file events are reversed in timeline order.
 
+## Next system recovery milestone: deletion and recreation
+
+Before adding more protected system paths, complete deletion recovery for the existing `/etc/hostname` adapter. This is a separate recovery state, not an empty-file snapshot. The implementation must:
+
+1. Persist an explicit, checksummed deletion event in the append-only system history while retaining the preceding content object.
+2. Distinguish a genuinely missing target from permission errors, I/O errors, an unavailable `/etc`, or an unsafe replacement such as a symlink. Only confirmed `ENOENT` for the exact allowlisted entry is a deletion.
+3. Restore a deleted hostname by safely creating the exact allowlisted file with the captured ownership and mode, without following links or overwriting a file that appeared after deletion.
+4. Use a durable transaction record that represents an originally absent target, so service startup can remove only a partially created file from an interrupted restore. Existing in-place restore rollback behavior must remain intact.
+5. Sync the new file and containing directory, verify the restored bytes and metadata, and retain all earlier recovery history.
+6. Test deletion detection, repeated deletion notifications, recreation, concurrent recreation conflicts, symlink substitution, permission failures, interrupted creation, service restart, and compatibility with existing catalog records.
+
+Do not report deletion as recoverable until both the deletion event and the crash-safe recreation path pass tests. Keep the adapter restricted to `/etc/hostname` throughout this milestone.
+
 ## Later recovery coverage
 
 After file and directory recovery are dependable, the longer-term goal is to expand beyond ordinary files. Candidate areas include:
