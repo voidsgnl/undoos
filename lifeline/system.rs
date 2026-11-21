@@ -409,7 +409,7 @@ fn main() {
     );
 
     let listener = inherited_listener().unwrap_or_else(|error| fail(&error));
-    eprintln!("lifeline-systemd: privileged control socket is ready (read-only status protocol)");
+    eprintln!("lifeline-systemd: privileged control socket is ready");
 
     loop {
         match listener.accept() {
@@ -468,7 +468,7 @@ mod tests {
     fn answers_status() {
         let mut request = Cursor::new(b"STATUS\n".to_vec());
         let mut response = Vec::new();
-        handle_request(&mut request, &mut response).unwrap();
+        handle_request(&mut request, &mut response, None, None).unwrap();
         assert_eq!(response, b"OK system-service=ready protocol=1\n");
     }
 
@@ -485,7 +485,7 @@ mod tests {
     fn rejects_unknown_requests() {
         let mut request = Cursor::new(b"RUN-SHELL\n".to_vec());
         let mut response = Vec::new();
-        assert!(handle_request(&mut request, &mut response).is_err());
+        assert!(handle_request(&mut request, &mut response, None, None).is_err());
         assert_eq!(response, b"ERROR unsupported-request\n");
     }
 
