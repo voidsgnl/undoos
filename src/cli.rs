@@ -17,6 +17,8 @@ COMMANDS:
     to <id>              Rewind saved changes after entry #id
     system status        Check the privileged system service
     system capture-hostname  Capture the approved /etc/hostname file
+    system history       Show captured /etc/hostname versions
+    system restore <id>  Restore a captured /etc/hostname version
     help                 Show this message
     --version            Show the version";
 pub enum Command {
@@ -31,6 +33,8 @@ pub enum Command {
     To(String),
     SystemStatus,
     SystemCaptureHostname,
+    SystemHistory,
+    SystemRestore(String),
 }
 fn arg(a: &[String], u: &str) -> Result<String, String> {
     a.get(1).cloned().ok_or_else(|| format!("usage: {u}"))
@@ -48,7 +52,11 @@ pub fn parse(a: &[String]) -> Result<Command, String> {
         Some("to") => arg(a, "lifeline to <id>").map(Command::To),
         Some("system") if a.len() == 2 && a[1] == "status" => Ok(Command::SystemStatus),
         Some("system") if a.len() == 2 && a[1] == "capture-hostname" => Ok(Command::SystemCaptureHostname),
-        Some("system") => Err("usage: lifeline system {status|capture-hostname}".to_string()),
+        Some("system") if a.len() == 2 && a[1] == "history" => Ok(Command::SystemHistory),
+        Some("system") if a.len() == 3 && a[1] == "restore" => {
+            Ok(Command::SystemRestore(a[2].clone()))
+        }
+        Some("system") => Err("usage: lifeline system {status|capture-hostname|history|restore <id>}".to_string()),
         Some(x) => Err(format!("unknown command: {x}")),
     }
 }
@@ -56,6 +64,8 @@ pub fn run(cmd: Command) -> Result<(), String> {
     match &cmd {
         Command::SystemStatus => return crate::system_client::status(),
         Command::SystemCaptureHostname => return crate::system_client::capture_hostname(),
+        Command::SystemHistory => return crate::system_client::hostname_history(),
+        Command::SystemRestore(id) => return crate::system_client::restore_hostname(id),
         _ => {}
     }
     if matches!(cmd, Command::Help | Command::Version) {
@@ -76,7 +86,7 @@ pub fn run(cmd: Command) -> Result<(), String> {
     let _state_lock = StateLock::acquire()?;
     restore::reconcile_pending()?;
     match cmd {
-        Command::Help | Command::Version | Command::SystemStatus | Command::SystemCaptureHostname => unreachable!(),
+        Command::Help | Command::Version | Command::SystemStatus | Command::SystemCaptureHostname | Command::SystemHistory | Command::SystemRestore(_) => unreachable!(),
         Command::Log => {
             let es = journal::read_all()?;
             if es.is_empty() {
@@ -231,11 +241,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_system_history_command() {
+        let args = vec!["system".to_string(), "history".to_string()];
+        assert!(matches!(parse(&args), Ok(Command::SystemHistory)));
+    }
+
+    #[test]
+    fn parses_system_restore_command() {
+        let args = vec![
+            "system".to_string(),
+            "restore".to_string(),
+            "0123456789abcdef0123456789abcdef".to_string(),
+        ];
+        assert!(matches!(parse(&args), Ok(Command::SystemRestore(_))));
+    }
+
+    #[test]
     fn rejects_incomplete_system_command() {
         let args = vec!["system".to_string()];
         assert_eq!(
             parse(&args).err().as_deref(),
-            Some("usage: lifeline system {status|capture-hostname}")
+            Some("usage: lifeline system {status|capture-hostname|history|restore <id>}")
         );
     }
 
