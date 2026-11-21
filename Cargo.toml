@@ -18,6 +18,10 @@ path = "lifeline/daemon.rs"
 name = "lifeline-systemd"
 path = "lifeline/system.rs"
 
+[[bin]]
+name = "lifeline-system-observer"
+path = "lifeline/system_observer.rs"
+
 [dependencies]
 libc = "0.2"
 notify = "8"
