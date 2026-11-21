@@ -24,7 +24,7 @@ The current prototype provides:
 
 - A Rust command-line application named `lifeline` and a background `lifeline-daemon`.
 - An opt-in root-owned systemd socket/service with typed status, capture, history, and restore operations restricted to `/etc/hostname`.
-- A separate root-owned inotify observer that automatically establishes a hostname baseline and captures completed content writes and atomic replacements of `/etc/hostname`.
+- A separate root-owned inotify observer that automatically establishes a hostname baseline, captures completed content writes and atomic replacements of `/etc/hostname`, and periodically reconciles the latest file state as a fallback when events are missed.
 - Configurable watched folders, with `~/Documents` as the default.
 - File baselines and saved copies for observed file changes and deletions.
 - `lifeline log`, `undo`, and `redo`, plus manual snapshots and named checkpoints.
