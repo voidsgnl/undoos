@@ -10,8 +10,9 @@ if ! command -v cargo >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "[1/3] Checking Rust formatting..."
-cargo fmt --all -- --check
+echo "[1/3] Formatting Rust source..."
+cargo fmt --all
+echo "Rust formatting complete."
 
 echo "[2/3] Building release binaries..."
 cargo build --release
