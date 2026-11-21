@@ -162,17 +162,7 @@ mod capture_response_tests {
     }
 }
 
-/// List the most recent captured versions of the approved hostname file.
-pub fn hostname_history() -> Result<(), String> {
-    let mut stream = connect_system_service()?;
-    stream
-        .write_all(b"HISTORY-HOSTNAME\n")
-        .map_err(|error| format!("cannot request system history: {error}"))?;
-    let mut response = String::new();
-    BufReader::new(stream)
-        .take(8192)
-        .read_to_string(&mut response)
-        .map_err(|error| format!("cannot read system history: {error}"))?;
+fn parse_hostname_history(response: &str) -> Result<Vec<(String, u128, u64)>, String> {
     let mut lines = response.lines();
     let header = lines
         .next()
@@ -182,11 +172,11 @@ pub fn hostname_history() -> Result<(), String> {
         .ok_or_else(|| format!("unexpected system history response: {header}"))?
         .parse::<usize>()
         .map_err(|_| "system service returned an invalid history count".to_string())?;
-    println!("System file history: /etc/hostname");
-    if count == 0 {
-        println!("No captured versions yet.");
-        return Ok(());
+    if count > 20 {
+        return Err("system service returned more than the 20-entry history limit".to_string());
     }
+
+    let mut entries = Vec::with_capacity(count);
     for line in lines {
         let fields = line.split('|').collect::<Vec<_>>();
         if fields.len() != 3
@@ -203,9 +193,73 @@ pub fn hostname_history() -> Result<(), String> {
         let size = fields[2]
             .parse::<u64>()
             .map_err(|_| "system service returned an invalid captured size".to_string())?;
-        println!("{}  timestamp={}  size={} bytes", fields[0], timestamp, size);
+        entries.push((fields[0].to_string(), timestamp, size));
+    }
+    if entries.len() != count {
+        return Err("system service history count does not match its entries".to_string());
+    }
+    Ok(entries)
+}
+
+/// List the most recent captured versions of the approved hostname file.
+pub fn hostname_history() -> Result<(), String> {
+    let mut stream = connect_system_service()?;
+    stream
+        .write_all(b"HISTORY-HOSTNAME\n")
+        .map_err(|error| format!("cannot request system history: {error}"))?;
+    let mut response = String::new();
+    BufReader::new(stream)
+        .take(8192)
+        .read_to_string(&mut response)
+        .map_err(|error| format!("cannot read system history: {error}"))?;
+    let entries = parse_hostname_history(&response)?;
+
+    println!("System file history: /etc/hostname");
+    if entries.is_empty() {
+        println!("No captured versions yet.");
+        return Ok(());
+    }
+    for (object_id, timestamp, size) in entries {
+        println!("{object_id}  timestamp={timestamp}  size={size} bytes");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod hostname_history_tests {
+    use super::*;
+
+    #[test]
+    fn parses_an_empty_hostname_history() {
+        assert!(parse_hostname_history("OK history count=0\n").unwrap().is_empty());
+    }
+
+    #[test]
+    fn parses_a_hostname_history_entry() {
+        let response = "OK history count=1\n0123456789abcdef0123456789abcdef|123456789|7\n";
+        let entries = parse_hostname_history(response).unwrap();
+        assert_eq!(
+            entries,
+            vec![("0123456789abcdef0123456789abcdef".to_string(), 123456789, 7)]
+        );
+    }
+
+    #[test]
+    fn rejects_a_history_count_that_does_not_match_the_entries() {
+        assert!(parse_hostname_history("OK history count=2\n").is_err());
+        assert!(parse_hostname_history("OK history count=0\n0123456789abcdef0123456789abcdef|1|1\n").is_err());
+    }
+
+    #[test]
+    fn rejects_more_than_twenty_history_entries() {
+        assert!(parse_hostname_history("OK history count=21\n").is_err());
+    }
+
+    #[test]
+    fn rejects_malformed_history_entries() {
+        assert!(parse_hostname_history("OK history count=1\nnot-an-id|1|1\n").is_err());
+        assert!(parse_hostname_history("OK history count=1\n0123456789abcdef0123456789abcdef|bad|1\n").is_err());
+    }
 }
 
 /// Restore one previously captured /etc/hostname version.
