@@ -30,6 +30,7 @@ Redid the undo of entry #1.
 | Independent empty-directory undo/redo | Implemented |
 | Directory permission-mode detection and undo/redo | Implemented |
 | User-level systemd service setup | Works where systemd user services are available |
+| Privileged system-service socket and read-only status check | Implemented; no privileged recovery actions yet |
 | Package installs and removals | Planned |
 | System settings and dotfiles | Planned |
 | Space-saving snapshots (dedup/deltas) | Planned |
@@ -63,6 +64,7 @@ See [docs/INSTALL.md](docs/INSTALL.md) for installation options, [docs/TESTING.m
 | `lifeline checkpoint <name>` | Drop a named marker in the timeline |
 | `lifeline back <name>` | Rewind active saved changes after that marker |
 | `lifeline to <id>` | Rewind active saved changes after entry `#id` |
+| `lifeline system status` | Check the privileged system service through its local socket |
 
 Full details: [docs/COMMANDS.md](docs/COMMANDS.md).
 
