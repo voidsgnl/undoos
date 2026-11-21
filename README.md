@@ -32,7 +32,7 @@ Redid the undo of entry #1.
 | User-level systemd service setup | Works where systemd user services are available |
 | Privileged system-service socket and typed control API | Implemented |
 | Administrator-authorized capture of the fixed `/etc/hostname` path | Implemented |
-| Automatic content observation of `/etc/hostname` | Initial inotify observer; captures baseline and completed content changes only; requires local verification |
+| Automatic content observation of `/etc/hostname` | Initial inotify observer with 30-second reconciliation fallback; captures baseline and completed content changes only; locally verified on one Ubuntu system |
 | Hostname capture history and administrator-authorized restore | Initial crash-recoverable restore adapter implemented; requires local verification |
 | Package installs and removals | Planned |
 | System settings and dotfiles | Planned |
@@ -40,7 +40,7 @@ Redid the undo of entry #1.
 
 The default configuration watches `~/Documents`. The installer creates that configuration if it does not already exist and attempts to enable the user-level background service. Existing configuration is preserved. Change watched folders in `~/.config/lifeline/config.toml`.
 
-**Important:** snapshots are currently full file copies. The privileged observer currently watches only `/etc/hostname` for completed content writes and atomic replacements. It does not capture deletion, metadata-only changes, or every intermediate version during rapid/coalesced events. Lifeline does not monitor every location or every kind of system change. Regular file contents, directory presence, and directory permission modes are tracked inside configured folders. Empty-directory creation and deletion can be undone and redone independently. Directory permission changes can be undone and redone with identity and conflict checks. Directory operations refuse to remove non-empty directories. Files above the configured size limit are skipped.
+**Important:** snapshots are currently full file copies. The privileged observer currently watches only `/etc/hostname` for completed content writes and atomic replacements, with a 30-second reconciliation fallback for the latest state. It does not capture deletion, metadata-only changes, or every intermediate version during rapid/coalesced events. Lifeline does not monitor every location or every kind of system change. Regular file contents, directory presence, and directory permission modes are tracked inside configured folders. Empty-directory creation and deletion can be undone and redone independently. Directory permission changes can be undone and redone with identity and conflict checks. Directory operations refuse to remove non-empty directories. Files above the configured size limit are skipped.
 
 ## Install
 
