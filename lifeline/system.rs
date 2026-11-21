@@ -402,6 +402,15 @@ mod tests {
     }
 
     #[test]
+    fn refuses_system_capture_without_authenticated_context() {
+        let mut request = Cursor::new(b"CAPTURE-HOSTNAME\\n".to_vec());
+        let mut response = Vec::new();
+        let error = handle_request(&mut request, &mut response, None, None).unwrap_err();
+        assert!(error.contains("no authenticated client"));
+        assert!(response.is_empty());
+    }
+
+    #[test]
     fn rejects_unknown_requests() {
         let mut request = Cursor::new(b"RUN-SHELL\n".to_vec());
         let mut response = Vec::new();
