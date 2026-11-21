@@ -178,6 +178,9 @@ fn metadata_record(object_id: &str, original_path: &Path, metadata: &Metadata) -
         return Err("invalid recovery object ID".to_string());
     }
     validate_original_path(original_path)?;
+    if !metadata.file_type().is_file() {
+        return Err("catalog metadata must describe a regular file".to_string());
+    }
     Ok(CatalogRecord {
         object_id: object_id.to_string(),
         captured_at_ns: timestamp_ns()?,
@@ -369,6 +372,43 @@ mod tests {
         fs::write(&catalog, contents).unwrap();
 
         assert!(read_all(&root).unwrap_err().contains("checksum"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn repairs_a_partial_tail_before_the_next_append() {
+        let root = temporary_store("repair-tail");
+        let source = root.join("example");
+        fs::write(&source, b"x").unwrap();
+        let metadata = fs::metadata(&source).unwrap();
+        let first_id = "0123456789abcdef0123456789abcdef";
+        let second_id = "abcdef0123456789abcdef0123456789";
+        let first = append(&root, first_id, &source, &metadata).unwrap();
+
+        OpenOptions::new()
+            .append(true)
+            .open(catalog_path(&root))
+            .unwrap()
+            .write_all(b"LFCAT001|interrupted")
+            .unwrap();
+
+        let second = append(&root, second_id, &source, &metadata).unwrap();
+        assert_eq!(read_all(&root).unwrap(), vec![first, second]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_duplicate_object_entries() {
+        let root = temporary_store("duplicate");
+        let source = root.join("example");
+        fs::write(&source, b"x").unwrap();
+        let metadata = fs::metadata(&source).unwrap();
+        let id = "0123456789abcdef0123456789abcdef";
+
+        append(&root, id, &source, &metadata).unwrap();
+        assert!(append(&root, id, &source, &metadata)
+            .unwrap_err()
+            .contains("already has a catalog entry"));
         fs::remove_dir_all(root).unwrap();
     }
 
