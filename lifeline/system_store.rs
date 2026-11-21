@@ -3,6 +3,8 @@
 //! Objects are written to a temporary file, synced, and linked into place
 //! without replacing an existing object. The store is not exposed over IPC yet.
 
+#![allow(dead_code)] // The object API will be consumed by the typed recovery protocol.
+
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
