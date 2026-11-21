@@ -20,6 +20,9 @@ const MAX_REQUEST_BYTES: usize = 32;
 #[path = "system_storage.rs"]
 mod system_storage;
 
+#[path = "system_store.rs"]
+mod system_store;
+
 #[derive(Debug, PartialEq, Eq)]
 struct PeerCredentials {
     pid: libc::pid_t,
@@ -261,6 +264,9 @@ fn main() {
 
     let storage_path = system_storage::verify().unwrap_or_else(|error| {
         fail(&format!("system recovery storage is not secure: {error}"))
+    });
+    system_store::initialize(&storage_path).unwrap_or_else(|error| {
+        fail(&format!("cannot initialize protected system object storage: {error}"))
     });
     eprintln!(
         "lifeline-systemd: verified protected system storage at {}",
