@@ -2,7 +2,7 @@
 //!
 //! The service exposes fixed health checks and one administrator-authorized,
 //! exact-path capture operation. It does not accept arbitrary paths or commands,
-//! and its first restore adapter is restricted to the same fixed hostname file.
+//! and its capture/history/restore adapter is restricted to /etc/hostname.
 
 use std::{
     env,
