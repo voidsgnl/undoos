@@ -7,10 +7,7 @@
 
 #![allow(dead_code)]
 
-use std::{
-    collections::HashSet,
-    path::Path,
-};
+use std::{collections::HashSet, path::Path};
 
 use super::{system_catalog, system_store};
 
@@ -37,13 +34,12 @@ pub fn reconcile(storage_root: &Path) -> Result<ReconciliationReport, String> {
             ));
         }
 
-        let bytes = system_store::get(storage_root, &record.object_id)
-            .map_err(|error| {
-                format!(
-                    "catalog references missing or invalid recovery object {}: {error}",
-                    record.object_id
-                )
-            })?;
+        let bytes = system_store::get(storage_root, &record.object_id).map_err(|error| {
+            format!(
+                "catalog references missing or invalid recovery object {}: {error}",
+                record.object_id
+            )
+        })?;
         if bytes.len() as u64 != record.original_size {
             return Err(format!(
                 "recovery object {} length does not match its catalog record",
@@ -52,7 +48,8 @@ pub fn reconcile(storage_root: &Path) -> Result<ReconciliationReport, String> {
         }
     }
 
-    let mut orphaned_object_ids = inventory.object_ids
+    let mut orphaned_object_ids = inventory
+        .object_ids
         .into_iter()
         .filter(|object_id| !referenced.contains(object_id.as_str()))
         .collect::<Vec<_>>();
@@ -69,17 +66,11 @@ pub fn reconcile(storage_root: &Path) -> Result<ReconciliationReport, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        fs,
-        os::unix::fs::PermissionsExt,
-        path::PathBuf,
-    };
+    use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
 
     fn temporary_store(label: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "lifeline-reconcile-{label}-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("lifeline-reconcile-{label}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
@@ -100,8 +91,14 @@ mod tests {
 
         assert_eq!(report.catalog_records, 1);
         assert_eq!(report.verified_objects, 1);
-        assert_eq!(report.orphaned_object_ids, vec![orphan.as_str().to_string()]);
-        assert_eq!(system_store::get(&root, orphan.as_str()).unwrap(), b"unreferenced evidence");
+        assert_eq!(
+            report.orphaned_object_ids,
+            vec![orphan.as_str().to_string()]
+        );
+        assert_eq!(
+            system_store::get(&root, orphan.as_str()).unwrap(),
+            b"unreferenced evidence"
+        );
         assert!(system_store::get(&root, referenced.as_str()).is_ok());
 
         fs::remove_dir_all(root).unwrap();
@@ -131,7 +128,10 @@ mod tests {
         fs::set_permissions(&temporary_path, fs::Permissions::from_mode(0o600)).unwrap();
 
         let report = reconcile(&root).unwrap();
-        assert_eq!(report.interrupted_temporary_ids, vec![temporary_id.to_string()]);
+        assert_eq!(
+            report.interrupted_temporary_ids,
+            vec![temporary_id.to_string()]
+        );
         assert!(temporary_path.exists());
 
         fs::remove_dir_all(root).unwrap();
@@ -154,7 +154,9 @@ mod tests {
         file.write_all(&line).unwrap();
         file.sync_all().unwrap();
 
-        assert!(reconcile(&root).unwrap_err().contains("duplicate object ID"));
+        assert!(reconcile(&root)
+            .unwrap_err()
+            .contains("duplicate object ID"));
         fs::remove_dir_all(root).unwrap();
     }
 }
