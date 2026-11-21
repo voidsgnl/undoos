@@ -229,6 +229,11 @@ fn read_catalog_bytes(file: &mut File) -> Result<Vec<u8>, String> {
 
 fn open_catalog(root: &Path) -> Result<File, String> {
     let path = catalog_path(root);
+    let existed = match fs::symlink_metadata(&path) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(format!("cannot inspect system recovery catalog: {error}")),
+    };
     let mut options = OpenOptions::new();
     options.read(true).append(true).create(true).mode(PRIVATE_FILE_MODE);
     options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
@@ -247,6 +252,11 @@ fn open_catalog(root: &Path) -> Result<File, String> {
     }
     if metadata.len() > MAX_CATALOG_BYTES {
         return Err("system recovery catalog reached its size limit".to_string());
+    }
+    if !existed {
+        File::open(root)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| format!("cannot sync recovery storage directory: {error}"))?;
     }
     Ok(file)
 }
