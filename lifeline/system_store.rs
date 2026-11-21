@@ -156,6 +156,10 @@ pub fn put(root: &Path, bytes: &[u8]) -> Result<ObjectId, String> {
                 return Err(format!("cannot create recovery object: {error}"));
             }
         };
+        if let Err(error) = file.set_permissions(fs::Permissions::from_mode(PRIVATE_FILE_MODE)) {
+            let _ = fs::remove_file(&temporary_path);
+            return Err(format!("cannot secure recovery object: {error}"));
+        }
 
         let write_result = (|| -> std::io::Result<()> {
             file.write_all(OBJECT_MAGIC)?;
