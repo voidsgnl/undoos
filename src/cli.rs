@@ -235,8 +235,8 @@ mod tests {
             "anything".to_string(),
         ];
         assert_eq!(
-            parse(&args).unwrap_err(),
-            "usage: lifeline system status"
+            parse(&args).err().as_deref(),
+            Some("usage: lifeline system status")
         );
     }
 }
