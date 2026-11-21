@@ -90,7 +90,7 @@ pub fn capture(
     let mut bytes = Vec::with_capacity(initial_metadata.len() as usize);
     file.seek(SeekFrom::Start(0))
         .map_err(|error| format!("cannot seek system file: {error}"))?;
-    file.take(MAX_CAPTURE_BYTES + 1)
+    (&mut file).take(MAX_CAPTURE_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| format!("cannot read system file: {error}"))?;
     if bytes.len() as u64 > MAX_CAPTURE_BYTES {
