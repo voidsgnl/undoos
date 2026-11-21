@@ -52,7 +52,7 @@ fn parse_line(line: &str) -> Result<DeletionRecord, String> {
     let fields = line.split('|').collect::<Vec<_>>();
     let (event_id, timestamp_field, object_field, checksum_field, payload) = match fields.as_slice() {
         [prefix, timestamp, object_id, checksum_field] if *prefix == LEGACY_PREFIX => (
-            String::new(), *timestamp, *object_id, *checksum_field,
+            (*object_id).to_string(), *timestamp, *object_id, *checksum_field,
             format!("{LEGACY_PREFIX}|{timestamp}|{object_id}"),
         ),
         [prefix, event_id, timestamp, object_id, checksum_field] if *prefix == PREFIX && valid_id(event_id) => (
