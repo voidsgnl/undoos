@@ -59,6 +59,19 @@ Rewind active saved changes after that checkpoint. The checkpoint and the origin
 
 Same as `back`, but by entry number from `lifeline log`. `to 0` rewinds all active saved changes.
 
+## `system capture-hostname`
+
+Capture the single system file currently approved for the first privileged capture test: `/etc/hostname`.
+
+```console
+$ lifeline system capture-hostname
+Authentication is required to capture an approved system file.
+Captured /etc/hostname: 12 bytes
+Recovery object: 0123456789abcdef0123456789abcdef
+```
+
+The service—not the CLI—selects the path. It requires Polkit administrator authentication, checks the exact `/etc/hostname` allowlist, safely opens the file without following symlinks, stores and verifies its contents, and appends metadata to the protected system catalog. Repeating the command creates another immutable capture. This is capture evidence only; system-file restore and general path capture are not yet available.
+
 ## Environment variables
 
 | Variable | Effect |
