@@ -137,12 +137,12 @@ fn authorize_action(peer: &PeerCredentials, action_id: &str) -> Result<(), Strin
     }
 
     match output.status.code() {
-        Some(1) => Err("Polkit denied system-file recovery".to_string()),
+        Some(1) => Err("Polkit denied the requested system-file operation".to_string()),
         Some(2) => Err(
             "Polkit could not authorize the request: no suitable authentication agent is available"
                 .to_string(),
         ),
-        Some(3) => Err("system-file recovery authorization was dismissed".to_string()),
+        Some(3) => Err("system-file authorization was dismissed".to_string()),
         code => Err(format!(
             "Polkit authorization failed (exit code {code:?}): {}",
             String::from_utf8_lossy(&output.stderr).trim()
