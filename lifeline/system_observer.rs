@@ -6,7 +6,7 @@
 
 use std::{
     fs::File,
-    io::{Read, Write},
+    io::Read,
     os::{
         fd::{AsRawFd, FromRawFd},
         unix::fs::MetadataExt,
