@@ -61,7 +61,7 @@ fn open_target() -> Result<File, String> {
     Ok(file)
 }
 
-fn write_target(file: &mut File, expected: &system_catalog::CatalogRecord, bytes: &[u8]) -> Result<(), String> {
+fn write_target(file: &mut File, expected: &system_catalog::CatalogRecord, bytes: &[u8], expected_live: Option<&[u8]>) -> Result<(), String> {
     if bytes.len() as u64 > MAX_FILE_BYTES || bytes.len() as u64 != expected.original_size {
         return Err("restore content length does not match its catalog record".to_string());
     }
@@ -79,6 +79,29 @@ fn write_target(file: &mut File, expected: &system_catalog::CatalogRecord, bytes
         return Err(format!(
             "{TARGET} no longer matches the captured file identity and metadata; refusing to overwrite it"
         ));
+    }
+
+    // When beginning a user-requested restore, verify that the live file
+    // still contains the exact preimage captured immediately beforehand. This
+    // prevents overwriting edits that happened while the safety snapshot was
+    // being created. Startup rollback deliberately omits this check because
+    // the file may contain a partial write from the interrupted operation.
+    if let Some(expected_live) = expected_live {
+        if before.len() != expected_live.len() as u64 {
+            return Err(format!("{TARGET} changed after its safety snapshot; refusing to overwrite it"));
+        }
+        file.seek(SeekFrom::Start(0))
+            .map_err(|error| format!("cannot inspect current {TARGET} contents: {error}"))?;
+        let mut actual = Vec::with_capacity(expected_live.len());
+        (&mut *file)
+            .take(MAX_FILE_BYTES + 1)
+            .read_to_end(&mut actual)
+            .map_err(|error| format!("cannot verify current {TARGET} contents: {error}"))?;
+        if actual != expected_live {
+            return Err(format!("{TARGET} changed after its safety snapshot; refusing to overwrite it"));
+        }
+        file.seek(SeekFrom::Start(0))
+            .map_err(|error| format!("cannot seek {TARGET} for restore: {error}"))?;
     }
 
     file.seek(SeekFrom::Start(0))
@@ -191,7 +214,7 @@ fn restore_backup(root: &Path, backup_id: &str) -> Result<(), String> {
     let record = backup_record(root, backup_id)?;
     let bytes = system_store::get(root, backup_id)?;
     let mut target = open_target()?;
-    write_target(&mut target, &record, &bytes)
+    write_target(&mut target, &record, &bytes, None)
 }
 
 /// Roll back an interrupted hostname restore before the service accepts IPC.
@@ -230,8 +253,18 @@ pub fn restore_hostname(root: &Path, object_id: &str) -> Result<String, String> 
         ));
     }
 
+    let backup_bytes = system_store::get(root, &backup.object_id)?;
+    if backup_bytes.len() as u64 != backup.original_size {
+        return Err("pre-restore recovery object length does not match its catalog record".to_string());
+    }
+
     write_pending(root, &backup.object_id)?;
-    if let Err(error) = write_target(&mut target, &selected, &selected_bytes) {
+    if let Err(error) = write_target(
+        &mut target,
+        &selected,
+        &selected_bytes,
+        Some(&backup_bytes),
+    ) {
         match restore_backup(root, &backup.object_id) {
             Ok(()) => {
                 remove_pending(root)?;
