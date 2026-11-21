@@ -35,7 +35,10 @@ const WATCH_MASK: u32 = libc::IN_CLOSE_WRITE
     | libc::IN_MOVED_TO
     | libc::IN_ATTRIB
     | libc::IN_DELETE
-    | libc::IN_Q_OVERFLOW;
+    | libc::IN_Q_OVERFLOW
+    | libc::IN_IGNORED
+    | libc::IN_MOVE_SELF
+    | libc::IN_DELETE_SELF;
 
 fn same_generation(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bool {
     before.dev() == after.dev()
@@ -52,10 +55,29 @@ fn same_generation(before: &std::fs::Metadata, after: &std::fs::Metadata) -> boo
 
 /// Read the fixed target without following a symbolic link.
 fn read_current() -> Result<Vec<u8>, String> {
-    let path = std::ffi::CString::new(TARGET).expect("fixed path has no NUL");
-    let fd = unsafe {
+    let directory_path = std::ffi::CString::new(ROOT).expect("fixed path has no NUL");
+    let directory_fd = unsafe {
         libc::open(
-            path.as_ptr(),
+            directory_path.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_DIRECTORY,
+        )
+    };
+    if directory_fd < 0 {
+        return Err(format!(
+            "cannot safely open {ROOT}: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    // SAFETY: open returned a new owned directory descriptor.
+    let directory = unsafe { File::from_raw_fd(directory_fd) };
+    if !directory.metadata().map_err(|error| format!("cannot inspect {ROOT}: {error}"))?.is_dir() {
+        return Err(format!("{ROOT} is not a real directory"));
+    }
+    let name = std::ffi::CString::new(NAME).expect("fixed filename has no NUL");
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
             libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK,
         )
     };
@@ -135,6 +157,9 @@ fn relevant_event(buffer: &[u8]) -> Result<bool, String> {
             return Err("inotify returned a truncated event header".to_string());
         }
         let mask = u32::from_ne_bytes(buffer[offset + 4..offset + 8].try_into().unwrap());
+        if mask & (libc::IN_IGNORED | libc::IN_MOVE_SELF | libc::IN_DELETE_SELF) != 0 {
+            return Err("the /etc watch was invalidated; restarting the observer".to_string());
+        }
         let name_len =
             u32::from_ne_bytes(buffer[offset + 12..offset + 16].try_into().unwrap()) as usize;
         offset += 16;
@@ -220,7 +245,7 @@ fn run() -> Result<(), String> {
                 ),
             },
             Ok(false) => {}
-            Err(error) => eprintln!("lifeline-system-observer: invalid inotify event: {error}"),
+            Err(error) => return Err(format!("invalid inotify event: {error}")),
         }
     }
 }
