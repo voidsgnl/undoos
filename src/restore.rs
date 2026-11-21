@@ -703,7 +703,11 @@ pub fn reconcile_pending() -> Result<(), String> {
     {
         let is_undo = pending.kind == "dir_undo_pending";
         let completed_kind = if is_undo { "dir_restore" } else { "dir_redo" };
-        let aborted_kind = if is_undo { "dir_undo_abort" } else { "dir_redo_abort" };
+        let aborted_kind = if is_undo {
+            "dir_undo_abort"
+        } else {
+            "dir_redo_abort"
+        };
         if entries.iter().any(|entry| {
             entry.id > pending.id
                 && (entry.kind == completed_kind || entry.kind == aborted_kind)
@@ -712,24 +716,29 @@ pub fn reconcile_pending() -> Result<(), String> {
             continue;
         }
 
-        let reference_id: u64 = pending.path.parse().map_err(|_| {
-            format!("invalid directory transaction reference: {}", pending.path)
-        })?;
+        let reference_id: u64 = pending
+            .path
+            .parse()
+            .map_err(|_| format!("invalid directory transaction reference: {}", pending.path))?;
         let original = (if is_undo {
             entries.iter().find(|entry| {
                 (entry.kind == "dir_track" || entry.kind == "dir_deleted")
                     && entry.id == reference_id
             })
         } else {
-            let restore = entries.iter().find(|entry| {
-                entry.kind == "dir_restore" && entry.id == reference_id
-            }).ok_or_else(|| format!(
-                "directory redo #{} references missing restore history",
-                pending.id
-            ))?;
-            let original_id: u64 = restore.path.parse().map_err(|_| {
-                format!("invalid original directory reference: {}", restore.path)
-            })?;
+            let restore = entries
+                .iter()
+                .find(|entry| entry.kind == "dir_restore" && entry.id == reference_id)
+                .ok_or_else(|| {
+                    format!(
+                        "directory redo #{} references missing restore history",
+                        pending.id
+                    )
+                })?;
+            let original_id: u64 = restore
+                .path
+                .parse()
+                .map_err(|_| format!("invalid original directory reference: {}", restore.path))?;
             entries.iter().find(|entry| {
                 (entry.kind == "dir_track" || entry.kind == "dir_deleted")
                     && entry.id == original_id
@@ -769,15 +778,19 @@ pub fn reconcile_pending() -> Result<(), String> {
                 use std::os::unix::fs::MetadataExt;
                 Some(format!("{}:{}", metadata.dev(), metadata.ino()))
             }
-            Ok(_) => return Err(format!(
-                "temporary recovery path {} is not a directory",
-                staged.display()
-            )),
+            Ok(_) => {
+                return Err(format!(
+                    "temporary recovery path {} is not a directory",
+                    staged.display()
+                ))
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-            Err(error) => return Err(format!(
-                "cannot inspect temporary directory {}: {error}",
-                staged.display()
-            )),
+            Err(error) => {
+                return Err(format!(
+                    "cannot inspect temporary directory {}: {error}",
+                    staged.display()
+                ))
+            }
         };
 
         if creates_directory {
@@ -1113,7 +1126,9 @@ pub fn redo_last() -> Result<Option<Entry>, String> {
         .into_iter()
         .flatten()
         .max_by_key(|entry| entry.id);
-    let Some(restore) = restore else { return Ok(None) };
+    let Some(restore) = restore else {
+        return Ok(None);
+    };
     if restore.kind == "dir_mode_restore" {
         redo_directory_mode_entry(&restore)?;
         return Ok(Some(restore));
