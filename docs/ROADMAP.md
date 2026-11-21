@@ -72,8 +72,8 @@ This requires more than expanding the current folder list or running the existin
 
 The implementation order is:
 
-1. Establish the privileged service, authorization boundary, IPC protocol, and system-owned storage. **Foundation implemented.** The root-owned socket service uses `SO_PEERCRED`, Polkit for user-requested capture and restore, protected object storage, an append-only catalog, and crash reconciliation. Its typed operations are restricted to `/etc/hostname`. A separate root-owned observer now watches `/etc` for completed writes and atomic replacements of that one file, storing a baseline and later content versions. It does not yet observe deletion, metadata-only changes, or arbitrary system paths; event coalescing and queue overflow can hide intermediate states.
-2. Add carefully scoped system filesystem coverage with mount-boundary and virtual-filesystem exclusions.
+1. Establish the privileged service, authorization boundary, IPC protocol, and system-owned storage. **Foundation implemented.** The root-owned socket service uses `SO_PEERCRED`, Polkit for user-requested capture and restore, protected object storage, an append-only catalog, and crash reconciliation. Its typed operations are restricted to `/etc/hostname`.
+2. Add carefully scoped system filesystem coverage with mount-boundary and virtual-filesystem exclusions. **Initial one-file prototype implemented:** a separate root-owned inotify observer establishes a baseline and records completed writes or atomic replacements of `/etc/hostname`. It does not yet observe deletion, metadata-only changes, arbitrary paths, or every intermediate version when events coalesce or the queue overflows. General filesystem coverage, mount-boundary handling, and broader exclusions remain future work.
 3. Add package-manager transaction capture and recovery.
 4. Add supported systemd service-state recovery.
 5. Add settings, account, ownership, ACL, and other domains only when their previous state can be captured and safely restored.
