@@ -217,6 +217,27 @@ mod tests {
     }
 
     #[test]
+    fn legacy_records_remain_readable_and_get_a_stable_compatibility_id() {
+        let object_id = "0123456789abcdef0123456789abcdef";
+        let payload = format!("{LEGACY_PREFIX}|123|{object_id}");
+        let line = format!("{payload}|{:08x}", checksum(payload.as_bytes()));
+        let record = parse_line(&line).unwrap();
+        assert_eq!(record.event_id, object_id);
+        assert_eq!(record.deleted_at_ns, 123);
+        assert_eq!(record.previous_object_id, object_id);
+    }
+
+    #[test]
+    fn repeated_delete_notifications_keep_the_same_event_id() {
+        let root = root("deduplicate");
+        let object_id = "0123456789abcdef0123456789abcdef";
+        let first = append(&root, object_id).unwrap();
+        let second = append(&root, object_id).unwrap();
+        assert_eq!(first, second);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn rejects_invalid_preceding_object_ids() {
         let root = root("invalid");
         assert!(append(&root, "../etc/passwd").is_err());
