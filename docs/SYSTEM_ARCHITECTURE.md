@@ -54,7 +54,7 @@ The system service must validate every request itself. It must not accept arbitr
 
 Linux mechanisms such as inotify/fanotify, audit, filesystem journals, and package-manager logs provide different kinds of evidence. None is a universal undo engine:
 
-- Event notifications can be coalesced, overflow, or arrive after a write has already happened.
+- Event notifications can be coalesced, overflow, or arrive after a write has already happened. A periodic reconciliation can recover the latest visible state, but cannot recreate intermediate versions that were overwritten before they were captured.
 - Audit records describe operations but do not automatically preserve overwritten contents.
 - Package logs describe transactions but do not guarantee that reinstalling an old package version recreates all prior state.
 - A system service can change state through several interfaces, so observing only its unit file is insufficient.
