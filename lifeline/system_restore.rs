@@ -81,7 +81,12 @@ fn same_file_generation(left: &std::fs::Metadata, right: &std::fs::Metadata) -> 
         && left.ctime_nsec() == right.ctime_nsec()
 }
 
-fn write_target(file: &mut File, expected: &system_catalog::CatalogRecord, bytes: &[u8], expected_live: Option<&[u8]>) -> Result<(), String> {
+fn write_target(
+    file: &mut File,
+    expected: &system_catalog::CatalogRecord,
+    bytes: &[u8],
+    expected_live: Option<&[u8]>,
+) -> Result<(), String> {
     if bytes.len() as u64 > MAX_FILE_BYTES || bytes.len() as u64 != expected.original_size {
         return Err("restore content length does not match its catalog record".to_string());
     }
@@ -108,7 +113,9 @@ fn write_target(file: &mut File, expected: &system_catalog::CatalogRecord, bytes
     // the file may contain a partial write from the interrupted operation.
     if let Some(expected_live) = expected_live {
         if before.len() != expected_live.len() as u64 {
-            return Err(format!("{TARGET} changed after its safety snapshot; refusing to overwrite it"));
+            return Err(format!(
+                "{TARGET} changed after its safety snapshot; refusing to overwrite it"
+            ));
         }
         file.seek(SeekFrom::Start(0))
             .map_err(|error| format!("cannot inspect current {TARGET} contents: {error}"))?;
@@ -118,7 +125,9 @@ fn write_target(file: &mut File, expected: &system_catalog::CatalogRecord, bytes
             .read_to_end(&mut actual)
             .map_err(|error| format!("cannot verify current {TARGET} contents: {error}"))?;
         if actual != expected_live {
-            return Err(format!("{TARGET} changed after its safety snapshot; refusing to overwrite it"));
+            return Err(format!(
+                "{TARGET} changed after its safety snapshot; refusing to overwrite it"
+            ));
         }
         file.seek(SeekFrom::Start(0))
             .map_err(|error| format!("cannot seek {TARGET} for restore: {error}"))?;
@@ -137,7 +146,9 @@ fn write_target(file: &mut File, expected: &system_catalog::CatalogRecord, bytes
         .read_to_end(&mut actual)
         .map_err(|error| format!("cannot read back restored {TARGET}: {error}"))?;
     if actual != bytes {
-        return Err(format!("restored {TARGET} does not match the selected recovery object"));
+        return Err(format!(
+            "restored {TARGET} does not match the selected recovery object"
+        ));
     }
     Ok(())
 }
