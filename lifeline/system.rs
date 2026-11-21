@@ -8,8 +8,7 @@ use std::{
     io::{Read, Write},
     os::fd::{AsRawFd, FromRawFd},
     os::unix::net::{UnixListener, UnixStream},
-    process,
-    thread,
+    process, thread,
     time::Duration,
 };
 
@@ -43,8 +42,7 @@ struct PeerCredentials {
 /// of a connected Unix stream socket.
 fn peer_credentials(stream: &UnixStream) -> Result<PeerCredentials, String> {
     let mut credentials = std::mem::MaybeUninit::<libc::ucred>::uninit();
-    let mut credentials_len =
-        std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    let mut credentials_len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
 
     let result = unsafe {
         libc::getsockopt(
@@ -149,16 +147,20 @@ fn fail(message: &str) -> ! {
 }
 
 fn inherited_listener() -> Result<UnixListener, String> {
-    let pid = env::var(SYSTEMD_LISTEN_PID)
-        .map_err(|_| "must be started by lifeline-system.socket (missing LISTEN_PID)".to_string())?;
+    let pid = env::var(SYSTEMD_LISTEN_PID).map_err(|_| {
+        "must be started by lifeline-system.socket (missing LISTEN_PID)".to_string()
+    })?;
     if pid.parse::<u32>().ok() != Some(process::id()) {
         return Err("systemd socket activation PID does not match this process".to_string());
     }
 
-    let count = env::var(SYSTEMD_LISTEN_FDS)
-        .map_err(|_| "must be started by lifeline-system.socket (missing LISTEN_FDS)".to_string())?;
+    let count = env::var(SYSTEMD_LISTEN_FDS).map_err(|_| {
+        "must be started by lifeline-system.socket (missing LISTEN_FDS)".to_string()
+    })?;
     if count != "1" {
-        return Err(format!("expected exactly one activated socket, received {count}"));
+        return Err(format!(
+            "expected exactly one activated socket, received {count}"
+        ));
     }
 
     // Validate descriptor 3 before transferring ownership from systemd.
@@ -271,14 +273,17 @@ fn main() {
         fail("must run as root through the system service");
     }
 
-    let storage_path = system_storage::verify().unwrap_or_else(|error| {
-        fail(&format!("system recovery storage is not secure: {error}"))
-    });
+    let storage_path = system_storage::verify()
+        .unwrap_or_else(|error| fail(&format!("system recovery storage is not secure: {error}")));
     system_store::initialize(&storage_path).unwrap_or_else(|error| {
-        fail(&format!("cannot initialize protected system object storage: {error}"))
+        fail(&format!(
+            "cannot initialize protected system object storage: {error}"
+        ))
     });
     let reconciliation = system_reconcile::reconcile(&storage_path).unwrap_or_else(|error| {
-        fail(&format!("system recovery storage reconciliation failed: {error}"))
+        fail(&format!(
+            "system recovery storage reconciliation failed: {error}"
+        ))
     });
     eprintln!(
         "lifeline-systemd: recovery store verified: {} catalog records; {} orphaned objects; {} interrupted temporary files",
@@ -328,7 +333,8 @@ mod tests {
     #[test]
     fn parses_process_start_time_with_spaces_and_closing_parentheses_in_name() {
         // Fields after the final ')' begin with field 3 (state); starttime is field 22.
-        let stat = "123 (a tricky ) process) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 987654 22 23";
+        let stat =
+            "123 (a tricky ) process) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 987654 22 23";
         assert_eq!(process_start_time(123, stat).unwrap(), 987654);
     }
 
