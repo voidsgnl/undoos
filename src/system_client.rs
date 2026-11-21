@@ -162,42 +162,34 @@ mod capture_response_tests {
     }
 }
 
-fn parse_hostname_history(response: &str) -> Result<Vec<(String, u128, u64)>, String> {
-    let mut lines = response.lines();
-    let header = lines
-        .next()
-        .ok_or_else(|| "system service returned an empty history response".to_string())?;
-    let count = header
-        .strip_prefix("OK history count=")
-        .ok_or_else(|| format!("unexpected system history response: {header}"))?
-        .parse::<usize>()
-        .map_err(|_| "system service returned an invalid history count".to_string())?;
-    if count > 20 {
-        return Err("system service returned more than the 20-entry history limit".to_string());
-    }
+#[derive(Debug, PartialEq, Eq)]
+enum HostnameHistoryEvent {
+    Captured { object_id: String, timestamp: u128, size: u64 },
+    Deleted { previous_object_id: String, timestamp: u128 },
+}
 
+fn parse_hostname_history(response: &str) -> Result<Vec<HostnameHistoryEvent>, String> {
+    let mut lines = response.lines();
+    let header = lines.next().ok_or_else(|| "system service returned an empty history response".to_string())?;
+    let count = header.strip_prefix("OK history count=").ok_or_else(|| format!("unexpected system history response: {header}"))?
+        .parse::<usize>().map_err(|_| "system service returned an invalid history count".to_string())?;
+    if count > 20 { return Err("system service returned more than the 20-entry history limit".to_string()); }
     let mut entries = Vec::with_capacity(count);
     for line in lines {
         let fields = line.split('|').collect::<Vec<_>>();
-        if fields.len() != 3
-            || fields[0].len() != 32
-            || !fields[0]
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        {
+        if fields.len() != 4 || fields[1].len() != 32
+            || !fields[1].bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) {
             return Err("system service returned an invalid history entry".to_string());
         }
-        let timestamp = fields[1]
-            .parse::<u128>()
-            .map_err(|_| "system service returned an invalid capture timestamp".to_string())?;
-        let size = fields[2]
-            .parse::<u64>()
-            .map_err(|_| "system service returned an invalid captured size".to_string())?;
-        entries.push((fields[0].to_string(), timestamp, size));
+        let timestamp = fields[2].parse::<u128>().map_err(|_| "system service returned an invalid event timestamp".to_string())?;
+        let size = fields[3].parse::<u64>().map_err(|_| "system service returned an invalid event size".to_string())?;
+        match fields[0] {
+            "C" => entries.push(HostnameHistoryEvent::Captured { object_id: fields[1].to_string(), timestamp, size }),
+            "D" if size == 0 => entries.push(HostnameHistoryEvent::Deleted { previous_object_id: fields[1].to_string(), timestamp }),
+            _ => return Err("system service returned an unknown history event type".to_string()),
+        }
     }
-    if entries.len() != count {
-        return Err("system service history count does not match its entries".to_string());
-    }
+    if entries.len() != count { return Err("system service history count does not match its entries".to_string()); }
     Ok(entries)
 }
 
@@ -219,8 +211,13 @@ pub fn hostname_history() -> Result<(), String> {
         println!("No captured versions yet.");
         return Ok(());
     }
-    for (object_id, timestamp, size) in entries {
-        println!("{object_id}  timestamp={timestamp}  size={size} bytes");
+    for entry in entries {
+        match entry {
+            HostnameHistoryEvent::Captured { object_id, timestamp, size } =>
+                println!("{object_id}  timestamp={timestamp}  size={size} bytes"),
+            HostnameHistoryEvent::Deleted { previous_object_id, timestamp } =>
+                println!("DELETED  timestamp={timestamp}  previous-object={previous_object_id}"),
+        }
     }
     Ok(())
 }
@@ -238,10 +235,20 @@ mod hostname_history_tests {
     fn parses_a_hostname_history_entry() {
         let response = "OK history count=1\n0123456789abcdef0123456789abcdef|123456789|7\n";
         let entries = parse_hostname_history(response).unwrap();
-        assert_eq!(
-            entries,
-            vec![("0123456789abcdef0123456789abcdef".to_string(), 123456789, 7)]
-        );
+        assert_eq!(entries, vec![HostnameHistoryEvent::Captured {
+            object_id: "0123456789abcdef0123456789abcdef".to_string(),
+            timestamp: 123456789,
+            size: 7,
+        }]);
+    }
+
+    #[test]
+    fn parses_a_hostname_deletion_event() {
+        let response = "OK history count=1\\nD|0123456789abcdef0123456789abcdef|123456789|0\\n";
+        assert_eq!(parse_hostname_history(response).unwrap(), vec![HostnameHistoryEvent::Deleted {
+            previous_object_id: "0123456789abcdef0123456789abcdef".to_string(),
+            timestamp: 123456789,
+        }]);
     }
 
     #[test]
