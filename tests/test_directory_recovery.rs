@@ -59,7 +59,10 @@ fn watcher_records_directory_permission_mode_changes_once() {
     let directory = watched.join("permissions");
     fs::create_dir(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
-    assert_success(&daemon_once(&home, &config), "initial permission baseline scan");
+    assert_success(
+        &daemon_once(&home, &config),
+        "initial permission baseline scan",
+    );
 
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o750)).unwrap();
     assert_success(&daemon_once(&home, &config), "permission change scan");
@@ -96,17 +99,35 @@ fn undo_and_redo_directory_permission_change() {
     let directory = watched.join("permissions");
     fs::create_dir(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
-    assert_success(&daemon_once(&home, &config), "initial permission baseline scan");
+    assert_success(
+        &daemon_once(&home, &config),
+        "initial permission baseline scan",
+    );
 
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o750)).unwrap();
     assert_success(&daemon_once(&home, &config), "permission change scan");
-    assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o7777, 0o750);
+    assert_eq!(
+        fs::metadata(&directory).unwrap().permissions().mode() & 0o7777,
+        0o750
+    );
 
-    assert_success(&lifeline(&home, &["undo"]), "undo directory permission change");
-    assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o7777, 0o700);
+    assert_success(
+        &lifeline(&home, &["undo"]),
+        "undo directory permission change",
+    );
+    assert_eq!(
+        fs::metadata(&directory).unwrap().permissions().mode() & 0o7777,
+        0o700
+    );
 
-    assert_success(&lifeline(&home, &["redo"]), "redo directory permission change");
-    assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o7777, 0o750);
+    assert_success(
+        &lifeline(&home, &["redo"]),
+        "redo directory permission change",
+    );
+    assert_eq!(
+        fs::metadata(&directory).unwrap().permissions().mode() & 0o7777,
+        0o750
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -118,15 +139,24 @@ fn undo_refuses_directory_permission_change_after_external_chmod() {
     let directory = watched.join("permissions");
     fs::create_dir(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
-    assert_success(&daemon_once(&home, &config), "initial permission baseline scan");
+    assert_success(
+        &daemon_once(&home, &config),
+        "initial permission baseline scan",
+    );
 
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o750)).unwrap();
     assert_success(&daemon_once(&home, &config), "permission change scan");
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o755)).unwrap();
 
     let undo = lifeline(&home, &["undo"]);
-    assert!(!undo.status.success(), "undo must refuse to overwrite a newer chmod");
-    assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o7777, 0o755);
+    assert!(
+        !undo.status.success(),
+        "undo must refuse to overwrite a newer chmod"
+    );
+    assert_eq!(
+        fs::metadata(&directory).unwrap().permissions().mode() & 0o7777,
+        0o755
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -138,14 +168,20 @@ fn interrupted_directory_permission_undo_is_reconciled_after_restart() {
     let directory = watched.join("permissions");
     fs::create_dir(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
-    assert_success(&daemon_once(&home, &config), "initial permission baseline scan");
+    assert_success(
+        &daemon_once(&home, &config),
+        "initial permission baseline scan",
+    );
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o750)).unwrap();
     assert_success(&daemon_once(&home, &config), "permission change scan");
 
     let marker = root.join("paused");
     let child = start_paused_undo(&home, "dir_mode_undo_after_chmod", &marker);
     kill_at_pause(child, &marker);
-    assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o7777, 0o700);
+    assert_eq!(
+        fs::metadata(&directory).unwrap().permissions().mode() & 0o7777,
+        0o700
+    );
 
     let recovered = lifeline(&home, &["log"]);
     assert_success(&recovered, "reconcile interrupted permission undo");
@@ -153,8 +189,14 @@ fn interrupted_directory_permission_undo_is_reconciled_after_restart() {
         String::from_utf8_lossy(&recovered.stdout).contains("dir_mode_restore"),
         "reconciliation should append the missing completion event"
     );
-    assert_success(&lifeline(&home, &["redo"]), "redo reconciled permission undo");
-    assert_eq!(fs::metadata(&directory).unwrap().permissions().mode() & 0o7777, 0o750);
+    assert_success(
+        &lifeline(&home, &["redo"]),
+        "redo reconciled permission undo",
+    );
+    assert_eq!(
+        fs::metadata(&directory).unwrap().permissions().mode() & 0o7777,
+        0o750
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -288,7 +330,10 @@ fn interrupted_directory_removal_is_reconciled_after_restart() {
         .unwrap()
         .lines()
         .count();
-    assert_success(&daemon_once(&home, &config), "daemon scan during pending removal");
+    assert_success(
+        &daemon_once(&home, &config),
+        "daemon scan during pending removal",
+    );
     assert_eq!(
         fs::read_to_string(home.join("journal.tsv"))
             .unwrap()
@@ -323,7 +368,10 @@ fn interrupted_directory_creation_is_reconciled_after_restart() {
         .unwrap()
         .lines()
         .count();
-    assert_success(&daemon_once(&home, &config), "daemon scan during pending creation");
+    assert_success(
+        &daemon_once(&home, &config),
+        "daemon scan during pending creation",
+    );
     assert_eq!(
         fs::read_to_string(home.join("journal.tsv"))
             .unwrap()
