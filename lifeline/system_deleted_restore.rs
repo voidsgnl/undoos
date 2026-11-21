@@ -323,7 +323,14 @@ pub fn restore_deleted_hostname(root: &Path, event_id: &str) -> Result<(), Strin
     };
     if result != 0 {
         let error = std::io::Error::last_os_error();
-        let _ = recover_interrupted_restore(root);
+        // renameat2 failed, so publication did not occur. Remove only our
+        // staged inode and leave any concurrently recreated hostname alone.
+        let cleanup = unlink_if_same(&directory, &stage, pending.device, pending.inode)
+            .and_then(|()| directory.sync_all().map_err(|sync_error| format!("cannot sync staging cleanup: {sync_error}")))
+            .and_then(|()| remove_pending(root));
+        if let Err(cleanup_error) = cleanup {
+            return Err(format!("cannot publish restored /etc/hostname without overwriting another file: {error}; staging cleanup remains pending: {cleanup_error}"));
+        }
         return Err(format!("cannot publish restored /etc/hostname without overwriting another file: {error}"));
     }
     directory.sync_all().map_err(|error| format!("cannot sync restored /etc/hostname directory entry: {error}"))?;
