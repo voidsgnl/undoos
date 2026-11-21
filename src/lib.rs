@@ -8,5 +8,5 @@ pub mod journal;
 pub mod lock;
 pub mod restore;
 pub mod snapshot;
-pub mod watcher;
 pub mod system_client;
+pub mod watcher;
