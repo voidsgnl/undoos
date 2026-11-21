@@ -244,7 +244,7 @@ mod hostname_history_tests {
 
     #[test]
     fn parses_a_hostname_history_entry() {
-        let response = "OK history count=1\n0123456789abcdef0123456789abcdef|123456789|7\n";
+        let response = "OK history count=1\nC|0123456789abcdef0123456789abcdef|123456789|7\n";
         let entries = parse_hostname_history(response).unwrap();
         assert_eq!(entries, vec![HostnameHistoryEvent::Captured {
             object_id: "0123456789abcdef0123456789abcdef".to_string(),
