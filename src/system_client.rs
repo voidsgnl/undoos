@@ -309,19 +309,23 @@ pub fn restore_hostname(object_id: &str) -> Result<(), String> {
                 .to_string(),
         );
     }
-    let backup_id = response
-        .trim_end()
-        .strip_prefix("OK restored backup=")
+    let result = response.trim_end()
+        .strip_prefix("OK restored ")
         .ok_or_else(|| format!("unexpected system restore response: {}", response.trim_end()))?;
-    if backup_id.len() != 32
-        || !backup_id
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
-        return Err("system service returned an invalid pre-restore backup ID".to_string());
+    if let Some(backup_id) = result.strip_prefix("backup=") {
+        if !valid_history_id(backup_id) {
+            return Err("system service returned an invalid pre-restore backup ID".to_string());
+        }
+        println!("Restored /etc/hostname from recovery object: {object_id}");
+        println!("Previous hostname saved as recovery object: {backup_id}");
+    } else if let Some(event_id) = result.strip_prefix("deletion=") {
+        if !valid_history_id(event_id) || event_id != object_id {
+            return Err("system service returned an invalid deletion event ID".to_string());
+        }
+        println!("Recreated deleted /etc/hostname from recovery event: {event_id}");
+    } else {
+        return Err(format!("unexpected system restore result: {result}"));
     }
-    println!("Restored /etc/hostname from recovery object: {object_id}");
-    println!("Previous hostname saved as recovery object: {backup_id}");
     Ok(())
 }
 
