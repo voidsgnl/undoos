@@ -1,7 +1,7 @@
 //! Minimal root-owned system service for the future privileged recovery boundary.
 //!
-//! This first version deliberately supports only a root-authenticated PING/PONG
-//! health check. It does not inspect files or perform privileged mutations.
+//! This first version deliberately supports only fixed, read-only health checks.
+//! It does not inspect files or perform privileged mutations.
 
 use std::{
     env,
@@ -81,7 +81,6 @@ fn inherited_listener() -> Result<UnixListener, String> {
     }
     Ok(listener)
 }
-
 
 fn handle_request<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result<(), String> {
     let mut request = Vec::with_capacity(MAX_REQUEST_BYTES);
