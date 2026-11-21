@@ -192,6 +192,16 @@ fn parse_hostname_history(response: &str) -> Result<Vec<HostnameHistoryEvent>, S
                     timestamp,
                 });
             }
+            // Compatibility with the previous protocol representation, which
+            // had no separate deletion-event identifier.
+            ["D", previous_object_id, timestamp, "0"] if valid_history_id(previous_object_id) => {
+                let timestamp = timestamp.parse::<u128>().map_err(|_| "system service returned an invalid event timestamp".to_string())?;
+                entries.push(HostnameHistoryEvent::Deleted {
+                    event_id: (*previous_object_id).to_string(),
+                    previous_object_id: (*previous_object_id).to_string(),
+                    timestamp,
+                });
+            }
             _ => return Err("system service returned an invalid history entry".to_string()),
         }
     }
@@ -258,6 +268,16 @@ mod hostname_history_tests {
         let response = "OK history count=1\nD|abcdef0123456789abcdef0123456789|0123456789abcdef0123456789abcdef|123456789|0\n";
         assert_eq!(parse_hostname_history(response).unwrap(), vec![HostnameHistoryEvent::Deleted {
             event_id: "abcdef0123456789abcdef0123456789".to_string(),
+            previous_object_id: "0123456789abcdef0123456789abcdef".to_string(),
+            timestamp: 123456789,
+        }]);
+    }
+
+    #[test]
+    fn parses_a_legacy_hostname_deletion_event() {
+        let response = "OK history count=1\\nD|0123456789abcdef0123456789abcdef|123456789|0\\n";
+        assert_eq!(parse_hostname_history(response).unwrap(), vec![HostnameHistoryEvent::Deleted {
+            event_id: "0123456789abcdef0123456789abcdef".to_string(),
             previous_object_id: "0123456789abcdef0123456789abcdef".to_string(),
             timestamp: 123456789,
         }]);
