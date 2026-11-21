@@ -165,7 +165,7 @@ mod capture_response_tests {
 #[derive(Debug, PartialEq, Eq)]
 enum HostnameHistoryEvent {
     Captured { object_id: String, timestamp: u128, size: u64 },
-    Deleted { previous_object_id: String, timestamp: u128 },
+    Deleted { event_id: String, previous_object_id: String, timestamp: u128 },
 }
 
 fn parse_hostname_history(response: &str) -> Result<Vec<HostnameHistoryEvent>, String> {
@@ -177,20 +177,31 @@ fn parse_hostname_history(response: &str) -> Result<Vec<HostnameHistoryEvent>, S
     let mut entries = Vec::with_capacity(count);
     for line in lines {
         let fields = line.split('|').collect::<Vec<_>>();
-        if fields.len() != 4 || fields[1].len() != 32
-            || !fields[1].bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) {
-            return Err("system service returned an invalid history entry".to_string());
-        }
-        let timestamp = fields[2].parse::<u128>().map_err(|_| "system service returned an invalid event timestamp".to_string())?;
-        let size = fields[3].parse::<u64>().map_err(|_| "system service returned an invalid event size".to_string())?;
-        match fields[0] {
-            "C" => entries.push(HostnameHistoryEvent::Captured { object_id: fields[1].to_string(), timestamp, size }),
-            "D" if size == 0 => entries.push(HostnameHistoryEvent::Deleted { previous_object_id: fields[1].to_string(), timestamp }),
-            _ => return Err("system service returned an unknown history event type".to_string()),
+        match fields.as_slice() {
+            ["C", object_id, timestamp, size] if valid_history_id(object_id) => {
+                let timestamp = timestamp.parse::<u128>().map_err(|_| "system service returned an invalid event timestamp".to_string())?;
+                let size = size.parse::<u64>().map_err(|_| "system service returned an invalid event size".to_string())?;
+                entries.push(HostnameHistoryEvent::Captured { object_id: (*object_id).to_string(), timestamp, size });
+            }
+            ["D", event_id, previous_object_id, timestamp, "0"]
+                if valid_history_id(event_id) && valid_history_id(previous_object_id) => {
+                let timestamp = timestamp.parse::<u128>().map_err(|_| "system service returned an invalid event timestamp".to_string())?;
+                entries.push(HostnameHistoryEvent::Deleted {
+                    event_id: (*event_id).to_string(),
+                    previous_object_id: (*previous_object_id).to_string(),
+                    timestamp,
+                });
+            }
+            _ => return Err("system service returned an invalid history entry".to_string()),
         }
     }
     if entries.len() != count { return Err("system service history count does not match its entries".to_string()); }
     Ok(entries)
+}
+
+fn valid_history_id(value: &str) -> bool {
+    value.len() == 32
+        && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// List the most recent captured versions of the approved hostname file.
@@ -215,8 +226,8 @@ pub fn hostname_history() -> Result<(), String> {
         match entry {
             HostnameHistoryEvent::Captured { object_id, timestamp, size } =>
                 println!("{object_id}  timestamp={timestamp}  size={size} bytes"),
-            HostnameHistoryEvent::Deleted { previous_object_id, timestamp } =>
-                println!("DELETED  timestamp={timestamp}  previous-object={previous_object_id}"),
+            HostnameHistoryEvent::Deleted { event_id, previous_object_id, timestamp } =>
+                println!("DELETED {event_id}  timestamp={timestamp}  previous-object={previous_object_id}"),
         }
     }
     Ok(())
@@ -244,8 +255,9 @@ mod hostname_history_tests {
 
     #[test]
     fn parses_a_hostname_deletion_event() {
-        let response = "OK history count=1\nD|0123456789abcdef0123456789abcdef|123456789|0\n";
+        let response = "OK history count=1\nD|abcdef0123456789abcdef0123456789|0123456789abcdef0123456789abcdef|123456789|0\n";
         assert_eq!(parse_hostname_history(response).unwrap(), vec![HostnameHistoryEvent::Deleted {
+            event_id: "abcdef0123456789abcdef0123456789".to_string(),
             previous_object_id: "0123456789abcdef0123456789abcdef".to_string(),
             timestamp: 123456789,
         }]);
