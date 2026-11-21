@@ -13,7 +13,10 @@ use std::{
     io::{Read, Seek, SeekFrom},
     os::{
         fd::{AsRawFd, FromRawFd},
-        unix::{ffi::OsStrExt, fs::{MetadataExt, OpenOptionsExt}},
+        unix::{
+            ffi::OsStrExt,
+            fs::{MetadataExt, OpenOptionsExt},
+        },
     },
     path::{Component, Path, PathBuf},
 };
@@ -45,7 +48,10 @@ impl CapturePolicy {
         for path in &allowed_paths {
             validate_relative_path(path)?;
         }
-        Ok(Self { root, allowed_paths })
+        Ok(Self {
+            root,
+            allowed_paths,
+        })
     }
 
     fn permits(&self, path: &Path) -> bool {
@@ -59,7 +65,9 @@ fn validate_relative_path(path: &Path) -> Result<(), String> {
     }
     let components = path.components().collect::<Vec<_>>();
     if components.is_empty()
-        || components.iter().any(|component| !matches!(component, Component::Normal(_)))
+        || components
+            .iter()
+            .any(|component| !matches!(component, Component::Normal(_)))
     {
         return Err("capture path must contain only ordinary relative path components".to_string());
     }
@@ -80,8 +88,7 @@ fn same_source_state(before: &fs::Metadata, after: &fs::Metadata) -> bool {
 }
 
 fn component_name(component: &std::ffi::OsStr) -> Result<CString, String> {
-    CString::new(component.as_bytes())
-        .map_err(|_| "capture path contains a NUL byte".to_string())
+    CString::new(component.as_bytes()).map_err(|_| "capture path contains a NUL byte".to_string())
 }
 
 fn open_directory_at(parent: &File, name: &std::ffi::OsStr) -> Result<File, String> {
@@ -115,7 +122,9 @@ fn open_source(
 
     let components = relative_path.components().collect::<Vec<_>>();
     if components.is_empty()
-        || components.iter().any(|component| !matches!(component, Component::Normal(_)))
+        || components
+            .iter()
+            .any(|component| !matches!(component, Component::Normal(_)))
     {
         return Err("capture path must contain only ordinary relative path components".to_string());
     }
@@ -125,9 +134,14 @@ fn open_source(
     let mut root_options = OpenOptions::new();
     root_options.read(true);
     root_options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_DIRECTORY);
-    let mut current = root_options.open(&root)
+    let mut current = root_options
+        .open(&root)
         .map_err(|error| format!("cannot safely open capture policy root: {error}"))?;
-    if !current.metadata().map_err(|error| format!("cannot inspect capture policy root: {error}"))?.is_dir() {
+    if !current
+        .metadata()
+        .map_err(|error| format!("cannot inspect capture policy root: {error}"))?
+        .is_dir()
+    {
         return Err("capture policy root is not a directory".to_string());
     }
 
@@ -157,7 +171,8 @@ fn open_source(
     }
     // SAFETY: openat returned a new owned descriptor.
     let file = unsafe { File::from_raw_fd(fd) };
-    let metadata = file.metadata()
+    let metadata = file
+        .metadata()
         .map_err(|error| format!("cannot inspect opened system file: {error}"))?;
     if !metadata.is_file() {
         return Err("only regular files can be captured".to_string());
@@ -187,14 +202,16 @@ pub fn capture(
     let mut bytes = Vec::with_capacity(initial_metadata.len() as usize);
     file.seek(SeekFrom::Start(0))
         .map_err(|error| format!("cannot seek system file: {error}"))?;
-    (&mut file).take(MAX_CAPTURE_BYTES + 1)
+    (&mut file)
+        .take(MAX_CAPTURE_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| format!("cannot read system file: {error}"))?;
     if bytes.len() as u64 > MAX_CAPTURE_BYTES {
         return Err("system file grew beyond the 64 MiB capture limit".to_string());
     }
 
-    let final_metadata = file.metadata()
+    let final_metadata = file
+        .metadata()
         .map_err(|error| format!("cannot recheck opened system file: {error}"))?;
     if !same_source_state(&initial_metadata, &final_metadata)
         || bytes.len() as u64 != initial_metadata.len()
@@ -224,10 +241,8 @@ mod tests {
     use std::{fs, os::unix::fs::PermissionsExt};
 
     fn temporary_root(label: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "lifeline-capture-{label}-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("lifeline-capture-{label}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
@@ -245,11 +260,15 @@ mod tests {
         let contents = b"safe system configuration";
         fs::write(&source, contents).unwrap();
 
-        let capture_policy = CapturePolicy::new(&policy, vec![PathBuf::from("example.conf")]).unwrap();
+        let capture_policy =
+            CapturePolicy::new(&policy, vec![PathBuf::from("example.conf")]).unwrap();
         let record = capture(&storage, &capture_policy, Path::new("example.conf")).unwrap();
         assert_eq!(record.original_path, source);
         assert_eq!(record.original_size, contents.len() as u64);
-        assert_eq!(system_store::get(&storage, &record.object_id).unwrap(), contents);
+        assert_eq!(
+            system_store::get(&storage, &record.object_id).unwrap(),
+            contents
+        );
         assert_eq!(system_catalog::read_all(&storage).unwrap(), vec![record]);
 
         fs::remove_dir_all(base).unwrap();
@@ -269,9 +288,12 @@ mod tests {
         fs::create_dir(&policy_root).unwrap();
         fs::create_dir(&storage).unwrap();
         fs::write(policy_root.join("other.conf"), b"not selected").unwrap();
-        let policy = CapturePolicy::new(&policy_root, vec![PathBuf::from("approved.conf")]).unwrap();
+        let policy =
+            CapturePolicy::new(&policy_root, vec![PathBuf::from("approved.conf")]).unwrap();
 
-        assert!(capture(&storage, &policy, Path::new("other.conf")).unwrap_err().contains("not listed"));
+        assert!(capture(&storage, &policy, Path::new("other.conf"))
+            .unwrap_err()
+            .contains("not listed"));
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -291,9 +313,18 @@ mod tests {
 
         let capture_policy = CapturePolicy::new(
             &policy,
-            vec![PathBuf::from("linked-dir/target.conf"), PathBuf::from("linked-file")],
-        ).unwrap();
-        assert!(capture(&storage, &capture_policy, Path::new("linked-dir/target.conf")).is_err());
+            vec![
+                PathBuf::from("linked-dir/target.conf"),
+                PathBuf::from("linked-file"),
+            ],
+        )
+        .unwrap();
+        assert!(capture(
+            &storage,
+            &capture_policy,
+            Path::new("linked-dir/target.conf")
+        )
+        .is_err());
         assert!(capture(&storage, &capture_policy, Path::new("linked-file")).is_err());
         fs::remove_dir_all(base).unwrap();
     }
@@ -313,7 +344,8 @@ mod tests {
         let capture_policy = CapturePolicy::new(
             &policy,
             vec![PathBuf::from("directory"), PathBuf::from("pipe")],
-        ).unwrap();
+        )
+        .unwrap();
         assert!(capture(&storage, &capture_policy, Path::new("directory")).is_err());
         assert!(capture(&storage, &capture_policy, Path::new("pipe")).is_err());
         fs::remove_dir_all(base).unwrap();
@@ -331,7 +363,9 @@ mod tests {
         file.set_len(MAX_CAPTURE_BYTES + 1).unwrap();
 
         let capture_policy = CapturePolicy::new(&policy, vec![PathBuf::from("large")]).unwrap();
-        assert!(capture(&storage, &capture_policy, Path::new("large")).unwrap_err().contains("64 MiB"));
+        assert!(capture(&storage, &capture_policy, Path::new("large"))
+            .unwrap_err()
+            .contains("64 MiB"));
         fs::remove_dir_all(base).unwrap();
     }
 
