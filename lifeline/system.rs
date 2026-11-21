@@ -1,8 +1,8 @@
-//! Minimal root-owned system service for the future privileged recovery boundary.
+//! Root-owned system service for the privileged recovery boundary.
 //!
-//! The service exposes fixed health checks and one administrator-authorized,
-//! exact-path capture operation. It does not accept arbitrary paths or commands,
-//! and its capture/history/restore adapter is restricted to /etc/hostname.
+//! The service exposes fixed health checks and administrator-authorized,
+//! exact-path capture and restore operations. It does not accept arbitrary
+//! paths or commands; its initial recovery adapter is restricted to /etc/hostname.
 
 use std::{
     env,
