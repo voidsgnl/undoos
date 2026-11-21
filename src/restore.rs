@@ -203,7 +203,10 @@ fn directory_mode_state(path: &Path) -> Result<(String, u32), String> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|error| format!("cannot inspect directory {}: {error}", path.display()))?;
     if !metadata.file_type().is_dir() {
-        return Err(format!("recovery conflict: {} is no longer a directory; leaving it untouched", path.display()));
+        return Err(format!(
+            "recovery conflict: {} is no longer a directory; leaving it untouched",
+            path.display()
+        ));
     }
     Ok((
         format!("{}:{}", metadata.dev(), metadata.ino()),
@@ -240,7 +243,12 @@ fn change_directory_mode(
 
     let pending_id = journal::next_id()?;
     let snapshot = format!("{identity}:{expected_mode:04o}:{desired_mode:04o}");
-    journal::append(pending_id, pending_kind, &reference_id.to_string(), &snapshot)?;
+    journal::append(
+        pending_id,
+        pending_kind,
+        &reference_id.to_string(),
+        &snapshot,
+    )?;
     test_pause(if pending_kind == "dir_mode_undo_pending" {
         "dir_mode_undo_after_intent"
     } else {
@@ -502,7 +510,12 @@ fn remove_directory_transaction(
     } else {
         "dir_redo_after_remove"
     });
-    journal::append(journal::next_id()?, completed_kind, &reference_id.to_string(), "")?;
+    journal::append(
+        journal::next_id()?,
+        completed_kind,
+        &reference_id.to_string(),
+        "",
+    )?;
     Ok(())
 }
 
@@ -510,10 +523,17 @@ fn undo_directory_entry(entry: &Entry) -> Result<(), String> {
     match entry.kind.as_str() {
         "dir_mode" => {
             let (identity, old_mode, new_mode) = parse_mode_transaction(&entry.snapshot)
-                .ok_or_else(|| format!("invalid directory permission history for {}", entry.path))?;
+                .ok_or_else(|| {
+                    format!("invalid directory permission history for {}", entry.path)
+                })?;
             change_directory_mode(
-                entry, entry.id, "dir_mode_undo_pending", "dir_mode_restore",
-                new_mode, old_mode, &identity,
+                entry,
+                entry.id,
+                "dir_mode_undo_pending",
+                "dir_mode_restore",
+                new_mode,
+                old_mode,
+                &identity,
             )
         }
         "dir_track" => remove_directory_transaction(
@@ -523,19 +543,19 @@ fn undo_directory_entry(entry: &Entry) -> Result<(), String> {
             entry.id,
             Some(entry.snapshot.as_str()),
         ),
-        "dir_deleted" => create_directory_transaction(
-            entry,
-            "dir_undo_pending",
-            "dir_restore",
-            entry.id,
-        ),
+        "dir_deleted" => {
+            create_directory_transaction(entry, "dir_undo_pending", "dir_restore", entry.id)
+        }
         _ => Ok(()),
     }
 }
 
 fn redo_directory_mode_entry(restore: &Entry) -> Result<(), String> {
     let original_id: u64 = restore.path.parse().map_err(|_| {
-        format!("invalid directory permission recovery reference: {}", restore.path)
+        format!(
+            "invalid directory permission recovery reference: {}",
+            restore.path
+        )
     })?;
     let original = journal::read_all()?
         .into_iter()
@@ -544,29 +564,31 @@ fn redo_directory_mode_entry(restore: &Entry) -> Result<(), String> {
     let (identity, old_mode, new_mode) = parse_mode_transaction(&original.snapshot)
         .ok_or_else(|| format!("invalid directory permission history for {}", original.path))?;
     change_directory_mode(
-        &original, restore.id, "dir_mode_redo_pending", "dir_mode_redo",
-        old_mode, new_mode, &identity,
+        &original,
+        restore.id,
+        "dir_mode_redo_pending",
+        "dir_mode_redo",
+        old_mode,
+        new_mode,
+        &identity,
     )
 }
 
 fn redo_directory_entry(restore: &Entry) -> Result<(), String> {
-    let original_id: u64 = restore.path.parse().map_err(|_| {
-        format!("invalid directory recovery reference: {}", restore.path)
-    })?;
+    let original_id: u64 = restore
+        .path
+        .parse()
+        .map_err(|_| format!("invalid directory recovery reference: {}", restore.path))?;
     let original = journal::read_all()?
         .into_iter()
         .find(|entry| {
-            (entry.kind == "dir_track" || entry.kind == "dir_deleted")
-                && entry.id == original_id
+            (entry.kind == "dir_track" || entry.kind == "dir_deleted") && entry.id == original_id
         })
         .ok_or_else(|| format!("original directory event #{original_id} is missing"))?;
     match original.kind.as_str() {
-        "dir_track" => create_directory_transaction(
-            &original,
-            "dir_redo_pending",
-            "dir_redo",
-            restore.id,
-        ),
+        "dir_track" => {
+            create_directory_transaction(&original, "dir_redo_pending", "dir_redo", restore.id)
+        }
         "dir_deleted" => remove_directory_transaction(
             &original,
             "dir_redo_pending",
@@ -589,8 +611,16 @@ pub fn reconcile_pending() -> Result<(), String> {
         entry.kind == "dir_mode_undo_pending" || entry.kind == "dir_mode_redo_pending"
     }) {
         let is_undo = pending.kind == "dir_mode_undo_pending";
-        let completed_kind = if is_undo { "dir_mode_restore" } else { "dir_mode_redo" };
-        let aborted_kind = if is_undo { "dir_mode_undo_abort" } else { "dir_mode_redo_abort" };
+        let completed_kind = if is_undo {
+            "dir_mode_restore"
+        } else {
+            "dir_mode_redo"
+        };
+        let aborted_kind = if is_undo {
+            "dir_mode_undo_abort"
+        } else {
+            "dir_mode_redo_abort"
+        };
         if entries.iter().any(|entry| {
             entry.id > pending.id
                 && (entry.kind == completed_kind || entry.kind == aborted_kind)
@@ -600,23 +630,41 @@ pub fn reconcile_pending() -> Result<(), String> {
         }
 
         let reference_id: u64 = pending.path.parse().map_err(|_| {
-            format!("invalid directory permission transaction reference: {}", pending.path)
+            format!(
+                "invalid directory permission transaction reference: {}",
+                pending.path
+            )
         })?;
         let original_id = if is_undo {
             reference_id
         } else {
-            let restore = entries.iter().find(|entry| {
-                entry.kind == "dir_mode_restore" && entry.id == reference_id
-            }).ok_or_else(|| format!("directory permission redo #{} has no matching restore", pending.id))?;
+            let restore = entries
+                .iter()
+                .find(|entry| entry.kind == "dir_mode_restore" && entry.id == reference_id)
+                .ok_or_else(|| {
+                    format!(
+                        "directory permission redo #{} has no matching restore",
+                        pending.id
+                    )
+                })?;
             restore.path.parse().map_err(|_| {
-                format!("invalid original directory permission reference: {}", restore.path)
+                format!(
+                    "invalid original directory permission reference: {}",
+                    restore.path
+                )
             })?
         };
-        let original = entries.iter().find(|entry| {
-            entry.kind == "dir_mode" && entry.id == original_id
-        }).ok_or_else(|| format!("directory permission event #{original_id} is missing"))?;
+        let original = entries
+            .iter()
+            .find(|entry| entry.kind == "dir_mode" && entry.id == original_id)
+            .ok_or_else(|| format!("directory permission event #{original_id} is missing"))?;
         let (identity, expected_mode, desired_mode) = parse_mode_transaction(&pending.snapshot)
-            .ok_or_else(|| format!("invalid pending directory permission transaction #{}", pending.id))?;
+            .ok_or_else(|| {
+                format!(
+                    "invalid pending directory permission transaction #{}",
+                    pending.id
+                )
+            })?;
         let (live_identity, live_mode) = directory_mode_state(Path::new(&original.path))?;
         if live_identity != identity {
             return Err(format!(
@@ -649,9 +697,10 @@ pub fn reconcile_pending() -> Result<(), String> {
     // Directory operations use staged sibling directories for creation. The
     // staged directory's device/inode identity is journaled before its atomic
     // rename, so recovery never adopts an unrelated directory at the target.
-    for pending in entries.iter().filter(|entry| {
-        entry.kind == "dir_undo_pending" || entry.kind == "dir_redo_pending"
-    }) {
+    for pending in entries
+        .iter()
+        .filter(|entry| entry.kind == "dir_undo_pending" || entry.kind == "dir_redo_pending")
+    {
         let is_undo = pending.kind == "dir_undo_pending";
         let completed_kind = if is_undo { "dir_restore" } else { "dir_redo" };
         let aborted_kind = if is_undo { "dir_undo_abort" } else { "dir_redo_abort" };
