@@ -1,9 +1,9 @@
 //! Immutable, integrity-checked objects for protected system recovery data.
 //!
 //! Objects are written to a temporary file, synced, and linked into place
-//! without replacing an existing object. The store is not exposed over IPC yet.
+//! without replacing an existing object. The store is consumed only by the service's typed, fixed-path recovery operations.
 
-#![allow(dead_code)] // The object API will be consumed by the typed recovery protocol.
+#![allow(dead_code)] // Some object-store APIs are reserved for future recovery adapters.
 
 use std::{
     fs::{self, File, OpenOptions},
