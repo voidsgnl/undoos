@@ -256,6 +256,7 @@ mod tests {
         let storage = base.join("storage");
         fs::create_dir(&policy).unwrap();
         fs::create_dir(&storage).unwrap();
+        fs::set_permissions(&storage, fs::Permissions::from_mode(0o700)).unwrap();
         let source = policy.join("example.conf");
         let contents = b"safe system configuration";
         fs::write(&source, contents).unwrap();
