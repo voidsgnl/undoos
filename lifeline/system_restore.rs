@@ -302,14 +302,14 @@ pub fn restore_hostname(root: &Path, object_id: &str) -> Result<String, String> 
         &selected_bytes,
         Some(&backup_bytes),
     ) {
-        match restore_backup(root, &backup.object_id) {
+        match write_target(&mut target, &backup, &backup_bytes, None) {
             Ok(()) => {
                 remove_pending(root)?;
                 return Err(format!("restore failed; the previous hostname was recovered: {error}"));
             }
             Err(rollback_error) => {
                 return Err(format!(
-                    "restore failed ({error}); automatic rollback also failed ({rollback_error}). The durable recovery record was retained for service-startup recovery."
+                    "restore failed ({error}); immediate rollback also failed ({rollback_error}). The durable recovery record was retained for service-startup recovery."
                 ));
             }
         }
