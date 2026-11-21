@@ -65,3 +65,17 @@ Same as `back`, but by entry number from `lifeline log`. `to 0` rewinds all acti
 |---|---|
 | `LIFELINE_HOME` | Where the journal and snapshots are stored |
 | `LIFELINE_YES` | If set, skip confirmation prompts (use carefully) |
+
+## `system status`
+
+Check that the privileged UndoOS system service is reachable and responding. This command contacts the service through `/run/lifeline/control.sock`; it does not infer service health from the socket file alone.
+
+```console
+$ lifeline system status
+System service: running
+Control protocol: version 1
+```
+
+The system-service installer creates the `lifeline` system group and adds the invoking login to it when installed through `sudo`. Log out and back in after installation so the new group membership applies. The socket is owned by `root:lifeline` with mode `0660`, so only root and members of that group can connect.
+
+This is currently a read-only health check. It does not grant the CLI permission to perform privileged changes, and the service does not accept shell commands or arbitrary filesystem operations.
