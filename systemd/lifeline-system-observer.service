@@ -1,6 +1,8 @@
 [Unit]
 Description=UndoOS automatic system-file observer
-After=local-fs.target
+After=local-fs.target systemd-tmpfiles-setup.service
+Requires=systemd-tmpfiles-setup.service
+RequiresMountsFor=/var/lib/lifeline/system
 Before=multi-user.target
 
 [Service]
