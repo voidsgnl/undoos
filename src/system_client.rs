@@ -161,3 +161,108 @@ mod capture_response_tests {
             .contains("sudo journalctl"));
     }
 }
+
+/// List the most recent captured versions of the approved hostname file.
+pub fn hostname_history() -> Result<(), String> {
+    let mut stream = connect_system_service()?;
+    stream
+        .write_all(b"HISTORY-HOSTNAME\\n")
+        .map_err(|error| format!("cannot request system history: {error}"))?;
+    let mut response = String::new();
+    BufReader::new(stream)
+        .take(8192)
+        .read_to_string(&mut response)
+        .map_err(|error| format!("cannot read system history: {error}"))?;
+    let mut lines = response.lines();
+    let header = lines
+        .next()
+        .ok_or_else(|| "system service returned an empty history response".to_string())?;
+    let count = header
+        .strip_prefix("OK history count=")
+        .ok_or_else(|| format!("unexpected system history response: {header}"))?
+        .parse::<usize>()
+        .map_err(|_| "system service returned an invalid history count".to_string())?;
+    println!("System file history: /etc/hostname");
+    if count == 0 {
+        println!("No captured versions yet.");
+        return Ok(());
+    }
+    for line in lines {
+        let fields = line.split('|').collect::<Vec<_>>();
+        if fields.len() != 3
+            || fields[0].len() != 32
+            || !fields[0]
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err("system service returned an invalid history entry".to_string());
+        }
+        let timestamp = fields[1]
+            .parse::<u128>()
+            .map_err(|_| "system service returned an invalid capture timestamp".to_string())?;
+        let size = fields[2]
+            .parse::<u64>()
+            .map_err(|_| "system service returned an invalid captured size".to_string())?;
+        println!("{}  timestamp={}  size={} bytes", fields[0], timestamp, size);
+    }
+    Ok(())
+}
+
+/// Restore one previously captured /etc/hostname version.
+pub fn restore_hostname(object_id: &str) -> Result<(), String> {
+    if object_id.len() != 32
+        || !object_id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("invalid recovery object ID; expected 32 lowercase hexadecimal characters".to_string());
+    }
+    let mut stream = connect_system_service()?;
+    let request = format!("RESTORE-HOSTNAME {object_id}\\n");
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| format!("cannot send system restore request: {error}"))?;
+    let mut response = String::new();
+    let bytes = BufReader::new(stream)
+        .take(512)
+        .read_line(&mut response)
+        .map_err(|error| format!("cannot read system restore response: {error}"))?;
+    if bytes == 0 {
+        return Err("system service closed the connection without a restore response".to_string());
+    }
+    if response.trim_end() == "ERROR restore-failed" {
+        return Err(
+            "system-file restore failed; inspect the service log with: sudo journalctl -u lifeline-system.service -n 40 --no-pager"
+                .to_string(),
+        );
+    }
+    let backup_id = response
+        .trim_end()
+        .strip_prefix("OK restored backup=")
+        .ok_or_else(|| format!("unexpected system restore response: {}", response.trim_end()))?;
+    if backup_id.len() != 32
+        || !backup_id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("system service returned an invalid pre-restore backup ID".to_string());
+    }
+    println!("Restored /etc/hostname from recovery object: {object_id}");
+    println!("Previous hostname saved as recovery object: {backup_id}");
+    Ok(())
+}
+
+fn connect_system_service() -> Result<UnixStream, String> {
+    let stream = UnixStream::connect(SOCKET_PATH).map_err(|error| {
+        format!(
+            "cannot contact the UndoOS system service at {SOCKET_PATH}: {error}. Check: systemctl status lifeline-system.socket"
+        )
+    })?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(120)))
+        .map_err(|error| format!("cannot set system-service response timeout: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("cannot set system-service request timeout: {error}"))?;
+    Ok(stream)
+}
