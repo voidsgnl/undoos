@@ -274,7 +274,7 @@ mod tests {
         ];
         assert_eq!(
             parse(&args).err().as_deref(),
-            Some("usage: lifeline system {status|capture-hostname}")
+            Some("usage: lifeline system {status|capture-hostname|history|restore <id>}")
         );
     }
 }
