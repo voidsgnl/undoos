@@ -105,7 +105,7 @@ Build and install it:
 make system-install
 ```
 
-The installer creates a system group named `lifeline`, adds the invoking login to that group, installs the root-owned service, and enables its socket. The socket is owned by `root:lifeline` with mode `0660`. Its parent directory permits path traversal, while the socket permissions restrict who can connect.
+The installer creates a system group named `lifeline`, adds the invoking login to that group, installs the root-owned service, and enables its socket. The socket is owned by `root:lifeline` with mode `0660`. A systemd-tmpfiles rule creates `/run/lifeline` as `root:root` with mode `0711` on boot and applies the same permissions during installation. The parent directory permits path traversal, while the socket permissions restrict who can connect.
 
 After installation, **log out and back in** so your login receives the new group membership. Then check the socket:
 
