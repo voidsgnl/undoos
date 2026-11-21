@@ -6,7 +6,7 @@
 use std::{
     env,
     io::{Read, Write},
-    os::fd::FromRawFd,
+    os::fd::{AsRawFd, FromRawFd},
     os::unix::net::{UnixListener, UnixStream},
     process,
     thread,
@@ -16,6 +16,53 @@ use std::{
 const SYSTEMD_LISTEN_FDS: &str = "LISTEN_FDS";
 const SYSTEMD_LISTEN_PID: &str = "LISTEN_PID";
 const MAX_REQUEST_BYTES: usize = 32;
+
+#[derive(Debug, PartialEq, Eq)]
+struct PeerCredentials {
+    pid: libc::pid_t,
+    uid: libc::uid_t,
+    gid: libc::gid_t,
+}
+
+/// Read kernel-authenticated credentials for the process at the other end
+/// of a connected Unix stream socket.
+fn peer_credentials(stream: &UnixStream) -> Result<PeerCredentials, String> {
+    let mut credentials = std::mem::MaybeUninit::<libc::ucred>::uninit();
+    let mut credentials_len =
+        std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+
+    let result = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            credentials.as_mut_ptr() as *mut libc::c_void,
+            &mut credentials_len,
+        )
+    };
+
+    if result != 0 {
+        return Err(format!(
+            "cannot authenticate local client credentials: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    if credentials_len as usize != std::mem::size_of::<libc::ucred>() {
+        return Err("kernel returned incomplete local client credentials".to_string());
+    }
+
+    // SAFETY: getsockopt succeeded and returned exactly sizeof(ucred) bytes.
+    let credentials = unsafe { credentials.assume_init() };
+    if credentials.pid <= 0 {
+        return Err("kernel returned an invalid local client process ID".to_string());
+    }
+
+    Ok(PeerCredentials {
+        pid: credentials.pid,
+        uid: credentials.uid,
+        gid: credentials.gid,
+    })
+}
 
 fn fail(message: &str) -> ! {
     eprintln!("lifeline-systemd: {message}");
@@ -117,8 +164,16 @@ fn handle_request<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result<(
 }
 
 fn handle_connection(mut stream: UnixStream) -> Result<(), String> {
-    // The systemd socket's root:lifeline ownership and 0660 mode restrict
-    // who can connect. This service currently exposes read-only health checks.
+    // SO_PEERCRED is supplied by the kernel, not by client-controlled request
+    // data. The socket's root:lifeline ownership and 0660 mode enforce the
+    // connection allowlist; these credentials identify the accepted client.
+    let peer = peer_credentials(&stream)?;
+    eprintln!(
+        "lifeline-systemd: authenticated local client pid={} uid={} gid={}",
+        peer.pid, peer.uid, peer.gid
+    );
+
+    // This service still exposes only fixed, read-only health checks.
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
         .map_err(|e| format!("cannot set request timeout: {e}"))?;
@@ -160,6 +215,16 @@ fn main() {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn reads_kernel_authenticated_peer_credentials() {
+        let (server, _client) = UnixStream::pair().unwrap();
+        let peer = peer_credentials(&server).unwrap();
+
+        assert_eq!(peer.pid, unsafe { libc::getpid() });
+        assert_eq!(peer.uid, unsafe { libc::geteuid() });
+        assert_eq!(peer.gid, unsafe { libc::getegid() });
+    }
 
     #[test]
     fn answers_ping() {
