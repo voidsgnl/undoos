@@ -737,10 +737,7 @@ impl Watcher {
         for entry in &entries {
             match entry.kind.as_str() {
                 "dir_track" | "dir_deleted" => {
-                    directory_events.insert(
-                        entry.id,
-                        (entry.path.clone(), entry.kind.clone()),
-                    );
+                    directory_events.insert(entry.id, (entry.path.clone(), entry.kind.clone()));
                 }
                 "dir_restore" => {
                     let Ok(original_id) = entry.path.parse::<u64>() else {
@@ -749,10 +746,7 @@ impl Watcher {
                     directory_restores.insert(entry.id, original_id);
                     if let Some((path, original_kind)) = directory_events.get(&original_id) {
                         if original_kind == "dir_deleted" && !entry.snapshot.is_empty() {
-                            recovery_identities.insert(
-                                path.clone(),
-                                (entry.id, entry.snapshot.clone()),
-                            );
+                            recovery_identities.insert(path.clone(), (entry.id, entry.snapshot.clone()));
                         } else {
                             recovery_identities.remove(path);
                         }
@@ -821,10 +815,7 @@ impl Watcher {
                 original_kind == "dir_track"
             };
             if creates_directory && !pending.snapshot.is_empty() {
-                recovery_identities.insert(
-                    path.clone(),
-                    (pending.id, pending.snapshot.clone()),
-                );
+                recovery_identities.insert(path.clone(), (pending.id, pending.snapshot.clone()));
             }
         }
 
