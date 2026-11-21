@@ -7,7 +7,7 @@
 
 use std::{
     fs::{self, File, Metadata, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     os::fd::AsRawFd,
     os::unix::{
         ffi::{OsStrExt, OsStringExt},
@@ -191,6 +191,39 @@ fn metadata_record(object_id: &str, original_path: &Path, metadata: &Metadata) -
     })
 }
 
+fn parse_catalog_bytes(bytes: &[u8]) -> Result<(Vec<CatalogRecord>, u64), String> {
+    let complete_length = bytes
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |index| index as u64 + 1);
+    let complete_bytes = &bytes[..complete_length as usize];
+    let mut records = Vec::new();
+
+    for line in complete_bytes.split(|byte| *byte == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let line = std::str::from_utf8(line)
+            .map_err(|_| "system recovery catalog contains invalid text".to_string())?;
+        records.push(parse_record(line)?);
+    }
+
+    Ok((records, complete_length))
+}
+
+fn read_catalog_bytes(file: &mut File) -> Result<Vec<u8>, String> {
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| format!("cannot seek system recovery catalog: {error}"))?;
+    let mut bytes = Vec::new();
+    file.take(MAX_CATALOG_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read system recovery catalog: {error}"))?;
+    if bytes.len() as u64 > MAX_CATALOG_BYTES {
+        return Err("system recovery catalog exceeds its size limit".to_string());
+    }
+    Ok(bytes)
+}
+
 fn open_catalog(root: &Path) -> Result<File, String> {
     let path = catalog_path(root);
     let mut options = OpenOptions::new();
@@ -221,6 +254,8 @@ pub fn append(root: &Path, object_id: &str, original_path: &Path, metadata: &Met
     let payload = record_payload(&record);
     let line = format!("{payload}|{:08x}\n", checksum(payload.as_bytes()));
 
+    // Validate the existing log while holding an exclusive lock. If the last
+    // append was interrupted, discard only its incomplete final line.
     let mut file = open_catalog(root)?;
     let lock_result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
     if lock_result != 0 {
@@ -228,11 +263,24 @@ pub fn append(root: &Path, object_id: &str, original_path: &Path, metadata: &Met
     }
 
     let result = (|| -> Result<(), String> {
-        let current_size = file.metadata()
-            .map_err(|error| format!("cannot inspect catalog size: {error}"))?.len();
-        if current_size.saturating_add(line.len() as u64) > MAX_CATALOG_BYTES {
+        let bytes = read_catalog_bytes(&mut file)?;
+        let (records, complete_length) = parse_catalog_bytes(&bytes)?;
+        if records.iter().any(|existing| existing.object_id == record.object_id) {
+            return Err("recovery object already has a catalog entry".to_string());
+        }
+
+        if complete_length != bytes.len() as u64 {
+            file.set_len(complete_length)
+                .map_err(|error| format!("cannot remove incomplete catalog tail: {error}"))?;
+            file.sync_all()
+                .map_err(|error| format!("cannot sync repaired recovery catalog: {error}"))?;
+        }
+
+        if complete_length.saturating_add(line.len() as u64) > MAX_CATALOG_BYTES {
             return Err("system recovery catalog reached its size limit".to_string());
         }
+        file.seek(SeekFrom::End(0))
+            .map_err(|error| format!("cannot seek to catalog end: {error}"))?;
         file.write_all(line.as_bytes())
             .map_err(|error| format!("cannot append system recovery catalog: {error}"))?;
         file.sync_all()
@@ -260,28 +308,14 @@ pub fn read_all(root: &Path) -> Result<Vec<CatalogRecord>, String> {
     }
 
     let mut file = open_catalog(root)?;
-    let mut bytes = Vec::new();
-    file.take(MAX_CATALOG_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| format!("cannot read system recovery catalog: {error}"))?;
-    if bytes.len() as u64 > MAX_CATALOG_BYTES {
-        return Err("system recovery catalog exceeds its size limit".to_string());
+    let lock_result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) };
+    if lock_result != 0 {
+        return Err(format!("cannot lock system recovery catalog: {}", std::io::Error::last_os_error()));
     }
-
-    let mut records = Vec::new();
-    let mut lines = bytes.split(|byte| *byte == b'\n').peekable();
-    while let Some(line) = lines.next() {
-        if line.is_empty() {
-            continue;
-        }
-        if lines.peek().is_none() && !bytes.ends_with(b"\n") {
-            break;
-        }
-        let line = std::str::from_utf8(line)
-            .map_err(|_| "system recovery catalog contains invalid text".to_string())?;
-        records.push(parse_record(line)?);
-    }
-    Ok(records)
+    let result = read_catalog_bytes(&mut file)
+        .and_then(|bytes| parse_catalog_bytes(&bytes).map(|(records, _)| records));
+    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN); }
+    result
 }
 
 #[cfg(test)]
