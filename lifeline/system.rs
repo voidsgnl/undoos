@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn refuses_system_capture_without_authenticated_context() {
-        let mut request = Cursor::new(b"CAPTURE-HOSTNAME\\n".to_vec());
+        let mut request = Cursor::new(b"CAPTURE-HOSTNAME\n".to_vec());
         let mut response = Vec::new();
         let error = handle_request(&mut request, &mut response, None, None).unwrap_err();
         assert!(error.contains("no authenticated client"));
