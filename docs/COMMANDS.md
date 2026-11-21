@@ -72,58 +72,6 @@ Recovery object: 0123456789abcdef0123456789abcdef
 
 The service selects the path itself. It requires Polkit administrator authentication, checks the exact allowlist, safely opens the file without following symlinks, stores and verifies an immutable recovery object, and appends metadata to the protected catalog. Repeating the command creates another version.
 
-## `system history`
-
-Show up to the 20 most recent captured versions of `/etc/hostname`. Each row includes the recovery object ID, capture timestamp in Unix epoch nanoseconds, and original size.
-
-```console
-$ lifeline system history
-System file history: /etc/hostname
-0123456789abcdef0123456789abcdef  timestamp=1795260000000000000  size=7 bytes
-```
-
-## `system restore <id>`
-
-Restore a previously captured `/etc/hostname` version by its 32-character recovery object ID.
-
-```console
-$ lifeline system restore 0123456789abcdef0123456789abcdef
-Authentication is required to restore a protected system file.
-Restored /etc/hostname from recovery object: 0123456789abcdef0123456789abcdef
-Previous hostname saved as recovery object: fedcba9876543210fedcba9876543210
-```
-
-Before changing the file, the service captures the current contents as a new recovery object. It validates the selected object's catalog entry and integrity, refuses to follow symlinks or overwrite a file whose inode or metadata no longer matches the captured identity, and writes only to the fixed hostname path. A durable pending transaction record allows the service to restore the pre-change contents if the operation is interrupted; startup resolves that transaction before accepting requests. The file's inode, owner, group, and mode are preserved.
-
-This is an initial system-file recovery adapter, not general system-wide restore. Only `/etc/hostname` is accepted. Package, service, account, and general system-setting changes are not currently reversible.
-
-## `system history`
-
-Show the 20 most recent captured versions of the approved system file, `/etc/hostname`. Each row contains the recovery object ID, capture timestamp (nanoseconds since the Unix epoch), and captured size.
-
-```console
-$ lifeline system history
-System file history: /etc/hostname
-0123456789abcdef0123456789abcdef  timestamp=...  size=12 bytes
-```
-
-History is read from the protected system catalog. It does not modify the hostname and does not require administrator authentication.
-
-## `system restore <id>`
-
-Restore one version listed by `lifeline system history`.
-
-```console
-$ lifeline system restore 0123456789abcdef0123456789abcdef
-Authentication is required to restore a protected system file.
-Restored /etc/hostname from recovery object: 0123456789abcdef0123456789abcdef
-Previous hostname saved as recovery object: fedcba9876543210fedcba9876543210
-```
-
-The service validates the object ID and confirms that the selected object has a catalog entry for exactly `/etc/hostname`. It requires the separate Polkit administrator authorization action. Before changing the file, it captures the current hostname as a new immutable recovery object and writes a durable pending-restore record. It then updates the existing regular file in place, syncs it, and verifies the resulting bytes. Updating in place preserves the file's inode, owner, mode, and hard-link identity; the operation is not an atomic rename. If the service is interrupted during the write, startup uses the durable pre-restore object to recover the previous contents before accepting new requests. If automatic rollback cannot be completed, the pending record is retained and the service refuses to proceed until recovery succeeds.
-
-This is a deliberately narrow first restore adapter. It does not restore arbitrary system files, package state, services, or settings. Keep normal backups; this early-development feature should not be treated as a substitute for system backup software.
-
 ## Environment variables
 
 | Variable | Effect |
