@@ -244,7 +244,7 @@ mod hostname_history_tests {
 
     #[test]
     fn parses_a_hostname_deletion_event() {
-        let response = "OK history count=1\\nD|0123456789abcdef0123456789abcdef|123456789|0\\n";
+        let response = "OK history count=1\nD|0123456789abcdef0123456789abcdef|123456789|0\n";
         assert_eq!(parse_hostname_history(response).unwrap(), vec![HostnameHistoryEvent::Deleted {
             previous_object_id: "0123456789abcdef0123456789abcdef".to_string(),
             timestamp: 123456789,
