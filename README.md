@@ -31,7 +31,7 @@ Redid the undo of entry #1.
 | Directory permission-mode detection and undo/redo | Implemented |
 | User-level systemd service setup | Works where systemd user services are available |
 | Privileged system-service socket and read-only status check | Implemented |
-| Administrator-authorized capture of the fixed `/etc/hostname` path | Initial end-to-end capture operation implemented; no system-file restore yet |
+| Administrator-authorized capture of the fixed `/etc/hostname` path | Implemented |\n| Hostname capture history and administrator-authorized restore | Initial crash-recoverable restore adapter implemented; requires local verification |
 | Package installs and removals | Planned |
 | System settings and dotfiles | Planned |
 | Space-saving snapshots (dedup/deltas) | Planned |
@@ -66,7 +66,7 @@ See [docs/INSTALL.md](docs/INSTALL.md) for installation options, [docs/TESTING.m
 | `lifeline back <name>` | Rewind active saved changes after that marker |
 | `lifeline to <id>` | Rewind active saved changes after entry `#id` |
 | `lifeline system status` | Check the privileged system service through its local socket |
-| `lifeline system capture-hostname` | Capture the single approved system file, `/etc/hostname`, after administrator authentication |
+| `lifeline system capture-hostname` | Capture the single approved system file, `/etc/hostname`, after administrator authentication |\n| `lifeline system history` | List the latest captured `/etc/hostname` versions |\n| `lifeline system restore <id>` | Restore a captured hostname version after administrator authentication |
 
 Full details: [docs/COMMANDS.md](docs/COMMANDS.md).
 
