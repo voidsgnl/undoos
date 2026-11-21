@@ -52,9 +52,9 @@ systemctl daemon-reload
 systemd-tmpfiles --create /etc/tmpfiles.d/lifeline.conf
 systemctl enable --now lifeline-system.socket
 
-echo "Installed the UndoOS system-service status endpoint."
+echo "Installed the UndoOS privileged system service (status, hostname capture/history/restore)."
 echo "The control socket is accessible to root and members of the lifeline group (0660)."
 if [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
-    echo "Log out and back in before running: lifeline system status"
+    echo "Log out and back in before using the lifeline system commands."
 fi
 echo "Check it with: systemctl status lifeline-system.socket"
