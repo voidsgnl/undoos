@@ -24,6 +24,8 @@ mod system_catalog;
 mod system_capture;
 #[path = "system_reconcile.rs"]
 mod system_reconcile;
+#[path = "system_deletion.rs"]
+mod system_deletion;
 
 const TARGET: &str = "/etc/hostname";
 const ROOT: &str = "/etc";
@@ -52,7 +54,7 @@ fn same_generation(before: &std::fs::Metadata, after: &std::fs::Metadata) -> boo
 }
 
 /// Read the fixed target without following a symbolic link.
-fn read_current() -> Result<Vec<u8>, String> {
+fn read_current() -> Result<Option<Vec<u8>>, String> {
     let directory_path = std::ffi::CString::new(ROOT).expect("fixed path has no NUL");
     let directory_fd = unsafe {
         libc::open(
@@ -88,10 +90,11 @@ fn read_current() -> Result<Vec<u8>, String> {
         )
     };
     if fd < 0 {
-        return Err(format!(
-            "cannot safely open {TARGET}: {}",
-            std::io::Error::last_os_error()
-        ));
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ENOENT) {
+            return Ok(None);
+        }
+        return Err(format!("cannot safely open {TARGET}: {error}"));
     }
     // SAFETY: open returned a new owned descriptor.
     let mut file = unsafe { File::from_raw_fd(fd) };
@@ -122,7 +125,7 @@ fn read_current() -> Result<Vec<u8>, String> {
     if !same_generation(&before, &after) || bytes.len() as u64 != before.len() {
         return Err(format!("{TARGET} changed while the observer read it"));
     }
-    Ok(bytes)
+    Ok(Some(bytes))
 }
 
 fn latest_hostname_record(
@@ -138,10 +141,34 @@ fn latest_hostname_record(
 /// current file content differs from the latest saved hostname version.
 fn observe_current(storage_root: &Path) -> Result<bool, String> {
     let current = read_current()?;
-    if let Some(previous) = latest_hostname_record(storage_root)? {
-        let previous_bytes = system_store::get(storage_root, &previous.object_id)?;
-        if previous_bytes == current {
+    let previous = latest_hostname_record(storage_root)?;
+    let deletions = system_deletion::read_all(storage_root)?;
+    let latest_deletion = deletions.last();
+
+    let Some(current) = current else {
+        let Some(previous) = previous else {
+            // There is no preceding content object to recover yet.
             return Ok(false);
+        };
+        if latest_deletion.is_some_and(|event| event.deleted_at_ns > previous.captured_at_ns) {
+            return Ok(false);
+        }
+        let event = system_deletion::append(storage_root, &previous.object_id)?;
+        eprintln!(
+            "lifeline-system-observer: recorded deletion of {TARGET}; preceding object {}",
+            event.previous_object_id
+        );
+        return Ok(true);
+    };
+
+    if let Some(previous) = previous {
+        let deletion_is_newer = latest_deletion
+            .is_some_and(|event| event.deleted_at_ns > previous.captured_at_ns);
+        if !deletion_is_newer {
+            let previous_bytes = system_store::get(storage_root, &previous.object_id)?;
+            if previous_bytes == current {
+                return Ok(false);
+            }
         }
     }
 
