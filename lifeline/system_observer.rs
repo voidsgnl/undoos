@@ -35,8 +35,6 @@ const WATCH_MASK: u32 = libc::IN_CLOSE_WRITE
     | libc::IN_MOVED_TO
     | libc::IN_ATTRIB
     | libc::IN_DELETE
-    | libc::IN_Q_OVERFLOW
-    | libc::IN_IGNORED
     | libc::IN_MOVE_SELF
     | libc::IN_DELETE_SELF;
 
@@ -70,7 +68,10 @@ fn read_current() -> Result<Vec<u8>, String> {
     }
     // SAFETY: open returned a new owned directory descriptor.
     let directory = unsafe { File::from_raw_fd(directory_fd) };
-    if !directory.metadata().map_err(|error| format!("cannot inspect {ROOT}: {error}"))?.is_dir() {
+    let directory_metadata = directory
+        .metadata()
+        .map_err(|error| format!("cannot inspect {ROOT}: {error}"))?;
+    if !directory_metadata.is_dir() {
         return Err(format!("{ROOT} is not a real directory"));
     }
     let name = std::ffi::CString::new(NAME).expect("fixed filename has no NUL");
@@ -195,7 +196,9 @@ fn watch_etc() -> Result<File, String> {
     // SAFETY: inotify_init1 returned a new owned descriptor.
     let file = unsafe { File::from_raw_fd(fd) };
     let directory = std::ffi::CString::new(ROOT).expect("fixed path has no NUL");
-    let watch = unsafe { libc::inotify_add_watch(file.as_raw_fd(), directory.as_ptr(), WATCH_MASK) };
+    let watch = unsafe {
+        libc::inotify_add_watch(file.as_raw_fd(), directory.as_ptr(), WATCH_MASK)
+    };
     if watch < 0 {
         return Err(format!(
             "cannot watch the fixed /etc directory: {}",
