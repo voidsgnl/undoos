@@ -66,6 +66,7 @@ fn encode_pending(pending: &Pending) -> String {
 }
 
 fn write_pending(root: &Path, pending: &Pending) -> Result<(), String> {
+    let path = pending_path(root);
     let temporary = root.join(".hostname-create.pending.tmp");
     if let Ok(metadata) = fs::symlink_metadata(&temporary) {
         if metadata.file_type().is_symlink()
@@ -239,7 +240,7 @@ fn verify_published(directory: &File, record: &system_catalog::CatalogRecord, by
         libc::openat(directory.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK)
     };
     if fd < 0 { return Err(format!("cannot open restored /etc/hostname: {}", std::io::Error::last_os_error())); }
-    let mut file = unsafe { File::from_raw_fd(fd) };
+    let file = unsafe { File::from_raw_fd(fd) };
     let metadata = file.metadata().map_err(|error| format!("cannot inspect restored hostname: {error}"))?;
     if !metadata.is_file() || metadata.dev() != device || metadata.ino() != inode
         || metadata.uid() != record.uid || metadata.gid() != record.gid
